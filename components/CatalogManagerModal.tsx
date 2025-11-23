@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { CatalogItem, LearnedMatch } from '../types';
-import { X, Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, Download } from 'lucide-react';
+import { X, Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save } from 'lucide-react';
 import { formatCurrency } from '../utils/parser';
 
 interface CatalogManagerModalProps {
@@ -22,14 +22,31 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
   // View State
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10; // Show fewer items for a simpler look, or 50 as per requirement. 50 is better for bulk.
+  const itemsPerPage = 10; 
   
   // Editor State
   const [isEditing, setIsEditing] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
   const [formData, setFormData] = useState({ description: '', price: '' });
 
-  if (!isOpen) return null;
+  // --- Filtering & Pagination ---
+  // FIXED: useMemo is now called UNCONDITIONALLY at the top level
+  const processedCatalog = useMemo(() => {
+    if (!catalog) return [];
+    let result = catalog;
+    if (searchTerm) {
+      const lowerTerm = searchTerm.toLowerCase();
+      result = result.filter(item => item.description && item.description.toLowerCase().includes(lowerTerm));
+    }
+    // Simple sort by description A-Z
+    return [...result].sort((a, b) => (a.description || '').localeCompare(b.description || ''));
+  }, [catalog, searchTerm]);
+
+  const totalPages = Math.ceil(processedCatalog.length / itemsPerPage);
+  const paginatedItems = processedCatalog.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   // --- CRUD Operations ---
 
@@ -43,14 +60,13 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
     setEditingItem(item);
     setFormData({ 
       description: item.description, 
-      price: item.price.toFixed(2).replace('.', ',') 
+      price: typeof item.price === 'number' ? item.price.toFixed(2).replace('.', ',') : '0,00'
     });
     setIsEditing(true);
   };
 
   const handleSave = () => {
     // Parse price: convert 1.000,00 to 1000.00
-    // Simple logic: remove dots (thousands separator), replace comma with dot
     let priceClean = formData.price.replace(/\./g, '').replace(',', '.');
     const priceNum = parseFloat(priceClean);
     
@@ -76,7 +92,6 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
       onUpdateCatalog(updatedCatalog);
     } else {
       // Add Mode
-      // Check duplicate only on add to allow editing price of existing
       const duplicate = catalog.find(
         c => c.description.toLowerCase() === formData.description.trim().toLowerCase()
       );
@@ -113,23 +128,8 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
     }
   };
 
-  // --- Filtering & Pagination ---
-
-  const processedCatalog = useMemo(() => {
-    let result = catalog;
-    if (searchTerm) {
-      const lowerTerm = searchTerm.toLowerCase();
-      result = result.filter(item => item.description.toLowerCase().includes(lowerTerm));
-    }
-    // Simple sort by description A-Z
-    return [...result].sort((a, b) => a.description.localeCompare(b.description));
-  }, [catalog, searchTerm]);
-
-  const totalPages = Math.ceil(processedCatalog.length / itemsPerPage);
-  const paginatedItems = processedCatalog.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  // FIXED: Conditional return is now AFTER all hooks
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
