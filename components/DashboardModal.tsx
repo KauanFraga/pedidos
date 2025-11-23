@@ -1,7 +1,4 @@
-<change>
-<file>components/DashboardModal.tsx</file>
-<description>Fix React Hook order violation by moving useMemo before conditional return.</description>
-<content><![CDATA[
+
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -29,7 +26,7 @@ const COLORS = {
 export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, history }) => {
   const [period, setPeriod] = useState<PeriodFilter>('THIS_MONTH');
 
-  // --- Date Filtering Logic (Always run hooks) ---
+  // --- Date Filtering Logic ---
   const filteredHistory = useMemo(() => {
     if (!history) return [];
     
@@ -145,7 +142,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
       .slice(0, 5);
   }, [filteredHistory]);
 
-  // --- CONDITIONAL RETURN MUST BE AFTER ALL HOOKS ---
   if (!isOpen) return null;
 
   return (
@@ -384,5 +380,3 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     </div>
   );
 };
-]]></content>
-</change>
