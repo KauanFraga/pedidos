@@ -1,7 +1,3 @@
-<change>
-<file>components/DashboardModal.tsx</file>
-<description>Refactor DashboardModal to ensure strict React Hook order compliance. All hooks are now called unconditionally at the top level.</description>
-<content><![CDATA[
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -20,19 +16,16 @@ interface DashboardModalProps {
 type PeriodFilter = 'TODAY' | 'LAST_7_DAYS' | 'THIS_MONTH' | 'LAST_MONTH' | 'ALL_TIME';
 
 const COLORS = {
-  APROVADO: '#22c55e', // green-500
-  PENDENTE: '#eab308', // yellow-500
-  PERDIDO: '#ef4444',  // red-500
-  RASCUNHO: '#94a3b8'  // slate-400
+  APROVADO: '#22c55e',
+  PENDENTE: '#eab308',
+  PERDIDO: '#ef4444',
+  RASCUNHO: '#94a3b8'
 };
 
 export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, history }) => {
-  // 1. ALL HOOKS MUST BE AT THE TOP LEVEL AND UNCONDITIONAL
   const [period, setPeriod] = useState<PeriodFilter>('THIS_MONTH');
 
-  // --- Date Filtering Logic (Inside useMemo, handles empty history internally) ---
   const filteredHistory = useMemo(() => {
-    // Safety check inside the hook
     if (!history || !Array.isArray(history) || history.length === 0) {
         return [];
     }
@@ -63,9 +56,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     });
   }, [history, period]);
 
-  // --- Metrics Calculation ---
   const metrics = useMemo(() => {
-    // Default metrics if no data
     if (filteredHistory.length === 0) {
         return {
             totalQuotes: 0,
@@ -98,11 +89,9 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     };
   }, [filteredHistory]);
 
-  // --- Chart Data ---
   const dailyData = useMemo(() => {
     const data: Record<string, { date: string, count: number }> = {};
     
-    // Pre-fill days
     if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH') {
         const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : new Date().getDate();
         for(let i = daysToLookBack - 1; i >= 0; i--) {
@@ -121,7 +110,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
           }
           data[dateKey].count += 1;
       } catch (e) {
-          // Ignore invalid dates
       }
     });
 
@@ -139,7 +127,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
   const topProducts = useMemo(() => {
     const productMap: Record<string, { name: string, qty: number, total: number }> = {};
     
-    // Safety check for items array structure
     const approvedQuotes = filteredHistory.filter(q => q.status === 'APROVADO');
 
     approvedQuotes.forEach(quote => {
@@ -167,14 +154,12 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
       .slice(0, 5);
   }, [filteredHistory]);
 
-  // 2. CONDITIONAL RETURN IS NOW SAFE because all hooks have been called
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden">
         
-        {/* Header */}
         <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white">
           <div className="flex items-center gap-3 text-slate-800">
              <div className="bg-blue-100 p-2 rounded-lg">
@@ -205,10 +190,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
           </div>
         </div>
 
-        {/* Content Scrollable Area */}
         <div className="overflow-y-auto flex-1 p-6 space-y-6">
            
-           {/* 1. KPI Cards */}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               
               <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 relative overflow-hidden group">
@@ -267,7 +250,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
               </div>
            </div>
 
-           {/* 2. Main Chart Area */}
            <div className="bg-white p-6 rounded-xl shadow-sm">
              <div className="flex items-center justify-between mb-4">
                  <h3 className="font-bold text-slate-700 flex items-center gap-2">
@@ -307,10 +289,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
              </div>
            </div>
 
-           {/* 3. Bottom Grid */}
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
-              {/* Top Products */}
               <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
                  <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-green-500" /> Produtos Mais Vendidos (Top 5)
@@ -348,7 +328,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
                  )}
               </div>
 
-              {/* Status Chart */}
               <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <PieIcon className="w-5 h-5 text-blue-500" /> Desempenho por Status
@@ -396,7 +375,6 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
         </div>
         
-        {/* Footer */}
         <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
             <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium transition-colors">
                 Fechar Dashboard
@@ -406,5 +384,3 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     </div>
   );
 };
-]]></content>
-</change>
