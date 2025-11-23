@@ -1,4 +1,7 @@
-
+<change>
+<file>components/DashboardModal.tsx</file>
+<description>Refactor DashboardModal to ensure strict React Hook order compliance. All hooks are now called unconditionally at the top level.</description>
+<content><![CDATA[
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -24,11 +27,15 @@ const COLORS = {
 };
 
 export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose, history }) => {
+  // 1. ALL HOOKS MUST BE AT THE TOP LEVEL AND UNCONDITIONAL
   const [period, setPeriod] = useState<PeriodFilter>('THIS_MONTH');
 
-  // --- Date Filtering Logic ---
+  // --- Date Filtering Logic (Inside useMemo, handles empty history internally) ---
   const filteredHistory = useMemo(() => {
-    if (!history) return [];
+    // Safety check inside the hook
+    if (!history || !Array.isArray(history) || history.length === 0) {
+        return [];
+    }
     
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -58,13 +65,24 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   // --- Metrics Calculation ---
   const metrics = useMemo(() => {
+    // Default metrics if no data
+    if (filteredHistory.length === 0) {
+        return {
+            totalQuotes: 0,
+            approved: { count: 0, value: 0 },
+            pending: { count: 0, value: 0 },
+            lost: { count: 0, value: 0 },
+            conversionRate: 0
+        };
+    }
+
     const approved = filteredHistory.filter(q => q.status === 'APROVADO');
     const pending = filteredHistory.filter(q => q.status === 'PENDENTE');
     const lost = filteredHistory.filter(q => q.status === 'PERDIDO');
 
-    const totalRevenue = approved.reduce((acc, q) => acc + q.totalValue, 0);
-    const potentialRevenue = pending.reduce((acc, q) => acc + q.totalValue, 0);
-    const lostRevenue = lost.reduce((acc, q) => acc + q.totalValue, 0);
+    const totalRevenue = approved.reduce((acc, q) => acc + (q.totalValue || 0), 0);
+    const potentialRevenue = pending.reduce((acc, q) => acc + (q.totalValue || 0), 0);
+    const lostRevenue = lost.reduce((acc, q) => acc + (q.totalValue || 0), 0);
 
     const closedDeals = approved.length + lost.length;
     const conversionRate = closedDeals > 0 
@@ -84,6 +102,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
   const dailyData = useMemo(() => {
     const data: Record<string, { date: string, count: number }> = {};
     
+    // Pre-fill days
     if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH') {
         const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : new Date().getDate();
         for(let i = daysToLookBack - 1; i >= 0; i--) {
@@ -95,11 +114,15 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     }
 
     filteredHistory.forEach(q => {
-      const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
-      if (!data[dateKey]) {
-          data[dateKey] = { date: dateKey, count: 0 };
+      try {
+          const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
+          if (!data[dateKey]) {
+              data[dateKey] = { date: dateKey, count: 0 };
+          }
+          data[dateKey].count += 1;
+      } catch (e) {
+          // Ignore invalid dates
       }
-      data[dateKey].count += 1;
     });
 
     return Object.values(data);
@@ -115,6 +138,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   const topProducts = useMemo(() => {
     const productMap: Record<string, { name: string, qty: number, total: number }> = {};
+    
+    // Safety check for items array structure
     const approvedQuotes = filteredHistory.filter(q => q.status === 'APROVADO');
 
     approvedQuotes.forEach(quote => {
@@ -142,6 +167,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
       .slice(0, 5);
   }, [filteredHistory]);
 
+  // 2. CONDITIONAL RETURN IS NOW SAFE because all hooks have been called
   if (!isOpen) return null;
 
   return (
@@ -380,3 +406,5 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     </div>
   );
 };
+]]></content>
+</change>
