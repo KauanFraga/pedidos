@@ -1,3 +1,4 @@
+
 export interface CatalogItem {
   id: string;
   description: string;
@@ -24,13 +25,18 @@ export interface ProcessedResult {
   items: QuoteItem[];
 }
 
+export type HistoryStatus = 'RASCUNHO' | 'PENDENTE' | 'APROVADO' | 'PERDIDO';
+
 export interface SavedQuote {
   id: string;
   createdAt: string; // ISO String
+  updatedAt?: string; // ISO String
   customerName: string;
   items: QuoteItem[];
   totalValue: number;
   originalInputText: string;
+  status: HistoryStatus;
+  notes?: string;
 }
 
 export enum QuoteStatus {
@@ -59,6 +65,7 @@ export interface PdfCustomerData {
   city: string;
   zip: string;
   phone: string;
+  whatsapp: string;
   constructionSite: string;
   cpfCnpj: string;
   stateRegistration: string;

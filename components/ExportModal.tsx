@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
-import { QuoteItem, StoreConfig } from '../types';
+import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
 import { formatCurrency } from '../utils/parser';
-import { X, Printer, User, FileText, Settings, Download, CreditCard } from 'lucide-react';
+import { X, Printer, User, FileText, Settings, Download, CreditCard, MessageCircle } from 'lucide-react';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerWhatsapp, setCustomerWhatsapp] = useState('');
   const [customerDoc, setCustomerDoc] = useState(''); // CPF/CNPJ
   const [salesperson, setSalesperson] = useState('KAUAN');
   const [discountPercent, setDiscountPercent] = useState(0);
@@ -83,6 +85,45 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
         setQuoteNumber(prev => prev + 1);
         setIsGenerating(false);
     }
+  };
+
+  const formatPhone = (value: string) => {
+    return value
+      .replace(/\D/g, '')
+      .replace(/(\d{2})(\d)/, '($1) $2')
+      .replace(/(\d{5})(\d)/, '$1-$2')
+      .replace(/(-\d{4})\d+?$/, '$1');
+  };
+
+  const handleWhatsappChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCustomerWhatsapp(formatPhone(e.target.value));
+  };
+
+  const handleSendWhatsApp = () => {
+    const phone = customerWhatsapp.replace(/\D/g, '');
+    if (!phone) {
+        alert("Por favor, preencha o WhatsApp do cliente.");
+        return;
+    }
+
+    const date = new Date().toLocaleDateString('pt-BR');
+    const config = storeConfig || getStoreConfig();
+    
+    const message = `Olá ${customerName || 'Cliente'}! Segue o orçamento #${quoteNumber} da Elétrica Padrão.
+
+📋 Orçamento: ${quoteNumber}
+📅 Data: ${date}
+💰 Valor: ${formatCurrency(totalValue)}
+💵 Total Final: ${formatCurrency(finalTotal)} (${paymentMethod})
+
+Qualquer dúvida, estou à disposição!
+
+Elétrica Padrão
+📞 ${config.phones}
+📱 ${config.whatsapp}`;
+
+    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const paymentOptions = [
@@ -155,6 +196,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                 />
               </div>
               <div>
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">WhatsApp (Enviar)</label>
+                <input 
+                  type="text" 
+                  value={customerWhatsapp} 
+                  onChange={handleWhatsappChange}
+                  placeholder="(35) 99999-9999"
+                  className="w-full p-2 border rounded focus:ring-2 focus:ring-green-500 outline-none" 
+                />
+              </div>
+            </div>
+            
+            <div>
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">CPF / CNPJ</label>
                 <input 
                   type="text" 
@@ -162,7 +215,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                   onChange={e => setCustomerDoc(e.target.value)}
                   className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" 
                 />
-              </div>
             </div>
 
             <hr className="border-slate-200" />
@@ -222,25 +274,33 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
 
           </div>
 
-          <div className="mt-8 pt-4 border-t border-slate-200">
+          <div className="mt-8 pt-4 border-t border-slate-200 flex gap-2">
             <button 
               onClick={handlePrint}
               disabled={isGenerating}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-wait text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-wait text-white font-bold py-3 px-2 rounded-lg flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 text-sm"
             >
               {isGenerating ? (
                   <>Gerando PDF...</>
               ) : (
                   <>
                     <Printer className="w-5 h-5" />
-                    Imprimir / Salvar PDF
+                    Salvar PDF
                   </>
               )}
             </button>
-            <p className="text-center text-xs text-slate-400 mt-2">
-              Na janela de impressão, escolha "Salvar como PDF"
-            </p>
+
+            <button 
+              onClick={handleSendWhatsApp}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-2 rounded-lg flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95 text-sm"
+            >
+               <MessageCircle className="w-5 h-5" />
+               Enviar Zap
+            </button>
           </div>
+          <p className="text-center text-xs text-slate-400 mt-2">
+              Na janela de impressão, escolha "Salvar como PDF"
+          </p>
         </div>
 
         {/* RIGHT SIDE: LIVE PREVIEW (Also visible on Print) */}
