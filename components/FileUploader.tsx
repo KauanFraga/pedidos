@@ -1,17 +1,20 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { parseCatalogFile } from '../utils/parser';
 import { CatalogItem } from '../types';
-import { UploadCloud, CheckCircle, AlertCircle, RefreshCw, FileText } from 'lucide-react';
+import { UploadCloud, CheckCircle, AlertCircle, RefreshCw, Edit, FileText } from 'lucide-react';
 
 interface FileUploaderProps {
   onUpload: (items: CatalogItem[]) => void;
   savedCatalogDate?: string | null;
   savedCount?: number;
+  onEditCatalog: () => void;
 }
 
-export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, savedCatalogDate, savedCount }) => {
+export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, savedCatalogDate, savedCount, onEditCatalog }) => {
   const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [count, setCount] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Sync internal state if props indicate a pre-loaded catalog
   useEffect(() => {
@@ -41,6 +44,9 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, savedCatal
       console.error(err);
       setStatus('error');
     }
+    
+    // Reset input to allow selecting same file again if needed
+    if (inputRef.current) inputRef.current.value = '';
   };
 
   const handleReset = () => {
@@ -60,53 +66,65 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onUpload, savedCatal
                 <CheckCircle className="w-10 h-10 text-green-500 mb-2" />
                 <p className="text-green-700 font-bold text-lg">{count} produtos carregados</p>
                 {savedCatalogDate && (
-                    <p className="text-xs text-green-600 mt-1 mb-3">
+                    <p className="text-xs text-green-600 mt-1 mb-4">
                         Último upload: {savedCatalogDate}
                     </p>
                 )}
-                <div className="relative mt-2">
-                    <button className="text-sm font-medium text-slate-600 flex items-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 px-4 py-2 rounded-lg transition-colors shadow-sm">
-                        <RefreshCw className="w-4 h-4" /> Trocar catálogo
+                
+                <div className="flex flex-col sm:flex-row gap-2 mt-2 justify-center w-full">
+                    <button 
+                        onClick={onEditCatalog}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center justify-center gap-2 shadow-sm transition-colors"
+                    >
+                        <Edit className="w-4 h-4" /> Editar Catálogo
                     </button>
+                    
+                    <button 
+                        onClick={() => inputRef.current?.click()}
+                        className="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 font-medium flex items-center justify-center gap-2 shadow-sm transition-colors"
+                    >
+                        <RefreshCw className="w-4 h-4" /> Trocar Catálogo
+                    </button>
+
+                    {/* Hidden Input */}
                     <input 
+                        ref={inputRef}
                         type="file" 
                         accept=".txt"
                         onChange={handleFileChange}
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        title="Clique para selecionar outro arquivo"
+                        className="hidden"
                     />
                 </div>
              </div>
          </div>
       ) : (
          /* Upload State */
-        <div className="relative border-2 border-dashed border-slate-300 rounded-lg p-6 hover:bg-slate-50 transition-colors text-center group">
+        <div 
+            className="relative border-2 border-dashed border-slate-300 rounded-lg p-8 hover:bg-slate-50 transition-colors text-center group cursor-pointer"
+            onClick={() => inputRef.current?.click()}
+        >
             <input 
-            type="file" 
-            accept=".txt"
-            onChange={handleFileChange}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                ref={inputRef}
+                type="file" 
+                accept=".txt"
+                onChange={handleFileChange}
+                className="hidden"
             />
             
             <div className="flex flex-col items-center pointer-events-none">
             {status === 'idle' && (
                 <>
-                <UploadCloud className="w-10 h-10 text-slate-400 mb-2 group-hover:text-yellow-500 transition-colors" />
-                <p className="text-slate-600 font-medium">Clique para carregar arquivo .txt</p>
-                <p className="text-xs text-slate-400 mt-1">Formato: DESCRIÇÃO [TAB] VALOR</p>
+                <UploadCloud className="w-12 h-12 text-slate-400 mb-3 group-hover:text-yellow-500 transition-colors" />
+                <p className="text-slate-700 font-bold text-lg">Clique para carregar o catálogo</p>
+                <p className="text-sm text-slate-500 mt-1">Arquivo .txt (Descrição [TAB] Preço)</p>
                 </>
             )}
 
             {status === 'error' && (
                 <>
-                <AlertCircle className="w-10 h-10 text-red-500 mb-2" />
-                <p className="text-red-600 font-medium">Erro ao ler arquivo. Verifique o formato.</p>
-                <button 
-                    onClick={(e) => { e.stopPropagation(); handleReset(); }}
-                    className="mt-2 text-xs underline text-red-400 hover:text-red-600 pointer-events-auto z-20"
-                >
-                    Tentar novamente
-                </button>
+                <AlertCircle className="w-12 h-12 text-red-500 mb-3" />
+                <p className="text-red-600 font-bold">Erro ao ler arquivo</p>
+                <p className="text-sm text-red-500 mt-1">Verifique o formato e tente novamente.</p>
                 </>
             )}
             </div>

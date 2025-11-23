@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { getStoreConfig, incrementQuoteNumber } from '../services/settingsService';
@@ -38,6 +39,8 @@ export const PdfGeneratorModal: React.FC<PdfGeneratorModalProps> = ({
       city: '',
       zip: '',
       phone: '',
+      // Fix: Added whatsapp field which is required in PdfCustomerData
+      whatsapp: '',
       constructionSite: '',
       cpfCnpj: '',
       stateRegistration: '',

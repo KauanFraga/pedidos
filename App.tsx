@@ -6,14 +6,15 @@ import { NotFoundItems } from './components/NotFoundItems';
 import { LearningModal } from './components/LearningModal';
 import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
-import { SettingsModal } from './components/SettingsModal'; // IMPORT
+import { SettingsModal } from './components/SettingsModal';
+import { CatalogManagerModal } from './components/CatalogManagerModal'; // Fix: Import CatalogManagerModal
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings } from 'lucide-react'; // Settings Icon
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings } from 'lucide-react'; 
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -42,6 +43,10 @@ function App() {
 
   // Settings Modal State
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+  // Catalog Manager Modal State
+  // Fix: Added state for catalog manager
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
 
   // Computed
   const totalValue = useMemo(() => {
@@ -114,6 +119,20 @@ function App() {
     } catch (e) {
         console.error("Failed to save catalog to storage (likely quota exceeded)", e);
         alert("Atenção: O catálogo é muito grande para ser salvo no navegador. Ele funcionará agora, mas você precisará enviá-lo novamente se recarregar a página.");
+    }
+  };
+
+  const handleUpdateCatalog = (newCatalog: CatalogItem[]) => {
+    const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
+    setCatalog(newCatalog);
+    setCatalogDate(now);
+    
+    try {
+        localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(newCatalog));
+        localStorage.setItem(CATALOG_DATE_KEY, now);
+    } catch (e) {
+        console.error("Failed to save catalog to storage", e);
+        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
     }
   };
 
@@ -332,7 +351,12 @@ function App() {
           
           {/* Left Column: Input */}
           <div className="lg:col-span-4 space-y-6">
-            <FileUploader onUpload={handleUpload} savedCatalogDate={catalogDate} savedCount={catalog.length} />
+            <FileUploader 
+              onUpload={handleUpload} 
+              savedCatalogDate={catalogDate} 
+              savedCount={catalog.length} 
+              onEditCatalog={() => setIsCatalogModalOpen(true)} // Fix: Passed required prop
+            />
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
               <h2 className="text-lg font-semibold text-slate-800 mb-2 flex items-center gap-2">
@@ -537,6 +561,16 @@ function App() {
         <SettingsModal 
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
+        />
+
+        {/* Catalog Manager Modal */}
+        {/* Fix: Added CatalogManagerModal component */}
+        <CatalogManagerModal 
+            isOpen={isCatalogModalOpen}
+            onClose={() => setIsCatalogModalOpen(false)}
+            catalog={catalog}
+            onUpdateCatalog={handleUpdateCatalog}
+            learnedMatches={learnedMatches}
         />
 
         {/* Export / Print Modal */}
