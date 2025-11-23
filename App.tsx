@@ -1,4 +1,7 @@
-
+<change>
+<file>App.tsx</file>
+<description>Add Dashboard button to header, manage dashboard modal state, and integrate DashboardModal component.</description>
+<content><![CDATA[
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
@@ -7,14 +10,15 @@ import { LearningModal } from './components/LearningModal';
 import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
-import { CatalogManagerModal } from './components/CatalogManagerModal'; // Fix: Import CatalogManagerModal
+import { CatalogManagerModal } from './components/CatalogManagerModal';
+import { DashboardModal } from './components/DashboardModal';
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings } from 'lucide-react'; 
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3 } from 'lucide-react'; 
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -38,6 +42,9 @@ function App() {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [quoteHistory, setQuoteHistory] = useState<SavedQuote[]>([]);
 
+  // Dashboard State
+  const [isDashboardOpen, setIsDashboardOpen] = useState(false);
+
   // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
@@ -45,7 +52,6 @@ function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Catalog Manager Modal State
-  // Fix: Added state for catalog manager
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
 
   // Computed
@@ -311,6 +317,15 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
+             {/* Dashboard Button */}
+             <button 
+                onClick={() => setIsDashboardOpen(true)}
+                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
+             >
+                 <BarChart3 className="w-4 h-4" />
+                 Dashboard
+             </button>
+
              <button 
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -355,7 +370,7 @@ function App() {
               onUpload={handleUpload} 
               savedCatalogDate={catalogDate} 
               savedCount={catalog.length} 
-              onEditCatalog={() => setIsCatalogModalOpen(true)} // Fix: Passed required prop
+              onEditCatalog={() => setIsCatalogModalOpen(true)} 
             />
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
@@ -564,13 +579,19 @@ function App() {
         />
 
         {/* Catalog Manager Modal */}
-        {/* Fix: Added CatalogManagerModal component */}
         <CatalogManagerModal 
             isOpen={isCatalogModalOpen}
             onClose={() => setIsCatalogModalOpen(false)}
             catalog={catalog}
             onUpdateCatalog={handleUpdateCatalog}
             learnedMatches={learnedMatches}
+        />
+
+        {/* Dashboard Modal */}
+        <DashboardModal 
+            isOpen={isDashboardOpen}
+            onClose={() => setIsDashboardOpen(false)}
+            history={quoteHistory}
         />
 
         {/* Export / Print Modal */}
@@ -587,3 +608,5 @@ function App() {
 }
 
 export default App;
+]]></content>
+</change>
