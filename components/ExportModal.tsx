@@ -1,9 +1,12 @@
-
+<change>
+<file>components/ExportModal.tsx</file>
+<description>Add Observations field to export modal and render it in the PDF layout.</description>
+<content><![CDATA[
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
 import { formatCurrency } from '../utils/parser';
-import { X, Printer, User, FileText, Settings, Download, CreditCard, MessageCircle } from 'lucide-react';
+import { X, Printer, User, FileText, Settings, Download, CreditCard, MessageCircle, Edit3 } from 'lucide-react';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -29,6 +32,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const [discountPercent, setDiscountPercent] = useState(0);
   const [quoteNumber, setQuoteNumber] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('À VISTA');
+  const [observations, setObservations] = useState(''); // New State
   const [isGenerating, setIsGenerating] = useState(false);
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null);
 
@@ -266,6 +270,16 @@ Elétrica Padrão
                     />
                 </div>
             </div>
+
+            <div>
+                <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Observações</label>
+                <textarea 
+                    value={observations}
+                    onChange={e => setObservations(e.target.value)}
+                    className="w-full p-2 border rounded text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Digite observações que aparecerão no PDF..."
+                />
+            </div>
             
             <div className="bg-blue-50 p-2 rounded border border-blue-100 text-center">
                 <span className="text-xs text-blue-600 font-bold block">TOTAL FINAL</span>
@@ -417,9 +431,10 @@ Elétrica Padrão
                    const desc = item.catalogItem ? item.catalogItem.description : item.originalRequest;
                    const unit = item.catalogItem ? item.catalogItem.price : 0;
                    const total = item.quantity * unit;
-                   
+                   const isEven = idx % 2 === 0;
+
                    return (
-                     <tr key={idx}>
+                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}> {/* Zebrado (Slate-200 / White) */}
                        <td className="text-center font-bold" style={{ color: '#000' }}>{item.quantity}</td>
                        <td className="uppercase px-2" style={{ color: '#000' }}>{desc}</td>
                        <td className="text-right" style={{ color: '#000' }}>{item.catalogItem ? formatCurrency(unit) : '-'}</td>
@@ -429,18 +444,18 @@ Elétrica Padrão
                 })}
                 {/* Empty rows to fill space if needed */}
                 {items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
-                  <tr key={`empty-${i}`}>
-                    <td className="text-transparent">.</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
+                  <tr key={`empty-${i}`} style={{ height: '22px' }}>
+                    <td style={{ border: '1px solid #000' }}></td>
+                    <td style={{ border: '1px solid #000' }}></td>
+                    <td style={{ border: '1px solid #000' }}></td>
+                    <td style={{ border: '1px solid #000' }}></td>
                   </tr>
                 ))}
               </tbody>
             </table>
-
+            
             {/* TOTALS */}
-            <div className="flex justify-end mb-8">
+            <div className="flex justify-end mb-4">
                <div className="w-1/2 border border-black">
                   <div className="flex justify-between p-2 border-b border-black bg-slate-50">
                      <span className="font-bold" style={{ color: '#000' }}>SUBTOTAL</span>
@@ -467,12 +482,29 @@ Elétrica Padrão
                </div>
             </div>
 
+            {/* OBSERVATIONS SECTION (Requested Feature) */}
+            <div style={{ 
+                border: '1px solid #000', 
+                borderRadius: '4px',
+                padding: '5px', 
+                minHeight: '60px', 
+                marginBottom: '20px',
+                fontSize: '11px',
+                color: '#000',
+                position: 'relative'
+            }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase' }}>Observações:</div>
+                <div style={{ whiteSpace: 'pre-wrap' }}>
+                    {observations}
+                </div>
+            </div>
+
             {/* DISCLAIMERS / FOOTER */}
-            <div className="border-t-2 border-black pt-4 text-center mt-auto" style={{ borderColor: '#000' }}>
+            <div className="border-t-2 border-black pt-2 text-center mt-auto" style={{ borderColor: '#000' }}>
                <p className="font-bold text-[10px] mb-2" style={{ color: '#000' }}>
                  PREZADO CLIENTE, AO RECEBER SEU MATERIAL FAVOR CONFERIR, POIS APÓS A ENTREGA NÃO NOS RESPONSABILIZAMOS POR DIVERGÊNCIA.
                </p>
-               <p className="font-bold text-[10px] text-red-600 mb-12">
+               <p className="font-bold text-[10px] text-red-600 mb-8">
                  MATERIAL EM LED COM 6 MESES DE GARANTIA, SOMENTE SERÁ VÁLIDA COM A APRESENTAÇÃO DESTA NOTINHA.
                </p>
                
@@ -489,3 +521,5 @@ Elétrica Padrão
     </div>
   );
 };
+]]></content>
+</change>
