@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
@@ -7,14 +6,15 @@ import { LearningModal } from './components/LearningModal';
 import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
-import { CatalogManagerModal } from './components/CatalogManagerModal'; // Fix: Import CatalogManagerModal
+import { CatalogManagerModal } from './components/CatalogManagerModal';
+import { DashboardModal } from './components/DashboardModal'; // ADICIONADO
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings } from 'lucide-react'; 
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3 } from 'lucide-react'; // ADICIONADO BarChart3
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -45,8 +45,10 @@ function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Catalog Manager Modal State
-  // Fix: Added state for catalog manager
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+
+  // Dashboard Modal State - ADICIONADO
+  const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
 
   // Computed
   const totalValue = useMemo(() => {
@@ -91,7 +93,6 @@ function App() {
         }
     } catch (e) {
         console.error("Failed to load catalog from storage", e);
-        // Clear corrupt data
         localStorage.removeItem(CATALOG_STORAGE_KEY);
         localStorage.removeItem(CATALOG_DATE_KEY);
     }
@@ -112,7 +113,6 @@ function App() {
     setCatalog(uploadedCatalog);
     setCatalogDate(now);
     
-    // Persist
     try {
         localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(uploadedCatalog));
         localStorage.setItem(CATALOG_DATE_KEY, now);
@@ -146,13 +146,10 @@ function App() {
     try {
       const lines = inputText.split('\n').filter(l => l.trim() !== '');
       
-      // Arrays to hold the final result and the subset of items that need AI processing
       const finalItems: QuoteItem[] = new Array(lines.length);
       const linesToProcess: { text: string, originalIndex: number }[] = [];
 
-      // 1. Check Local Storage matches first
       lines.forEach((line, idx) => {
-         // CLEAN input before searching
          const cleanedInput = cleanTextForLearning(line);
          const matchId = findLearnedMatch(cleanedInput);
          let foundLocally = false;
@@ -160,10 +157,8 @@ function App() {
          if (matchId) {
             const catalogItem = catalog.find(c => c.id === matchId);
             if (catalogItem) {
-                // Found locally - construct item immediately
                 foundLocally = true;
                 
-                // Basic quantity extraction for locally matched items
                 let quantity = 1;
                 const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)/);
                 if (qtyMatch) {
@@ -171,7 +166,6 @@ function App() {
                     if (!isNaN(q) && q > 0) quantity = q;
                 }
 
-                // Apply conversions (e.g. "rolo" -> 100m)
                 const { newQuantity, log } = applyConversions(line, quantity);
 
                 finalItems[idx] = {
@@ -185,42 +179,34 @@ function App() {
             }
          }
          
-         // If not found locally, add to queue for AI
          if (!foundLocally) {
              linesToProcess.push({ text: line, originalIndex: idx });
          }
       });
 
-      // 2. Send remaining items to Gemini
       if (linesToProcess.length > 0) {
           const textToProcess = linesToProcess.map(l => l.text).join('\n');
           const result = await processOrderWithGemini(catalog, textToProcess);
           
-          // 3. Merge AI results back into the correct positions
           result.items.forEach((item, resultIdx) => {
-              // Safety check to prevent index out of bounds if AI hallucinated extra items
               if (resultIdx < linesToProcess.length) {
                   const originalIndex = linesToProcess[resultIdx].originalIndex;
                   finalItems[originalIndex] = item;
 
-                  // AUTOMATICALLY LEARN FROM AI MATCHES
                   if (item.catalogItem) {
                     saveLearnedMatch(item.originalRequest, item.catalogItem);
-                    item.isLearned = true; // Mark as learned immediately in UI
+                    item.isLearned = true;
                   }
               }
           });
           
-          // Refresh learned matches state since we just added a bunch
           refreshLearnedMatches();
       }
 
-      // Filter out any empty slots
       const processedItems = finalItems.filter(Boolean);
       setItems(processedItems);
       setStatus(QuoteStatus.COMPLETE);
 
-      // AUTOMATIC HISTORY SAVE
       if (processedItems.length > 0) {
         saveQuoteToHistory(customerName, processedItems, inputText);
         refreshHistory();
@@ -311,6 +297,15 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
+             {/* ADICIONADO BOTÃO DO DASHBOARD */}
+             <button 
+                onClick={() => setIsDashboardModalOpen(true)}
+                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
+             >
+                 <BarChart3 className="w-4 h-4" />
+                 Dashboard
+             </button>
+
              <button 
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -355,7 +350,7 @@ function App() {
               onUpload={handleUpload} 
               savedCatalogDate={catalogDate} 
               savedCount={catalog.length} 
-              onEditCatalog={() => setIsCatalogModalOpen(true)} // Fix: Passed required prop
+              onEditCatalog={() => setIsCatalogModalOpen(true)}
             />
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
@@ -415,7 +410,6 @@ function App() {
             {/* Stats / Summary Header */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between items-end gap-6 relative overflow-hidden">
                
-               {/* Background Decoration */}
                <div className="absolute top-0 left-0 p-6 flex items-center gap-4 z-10">
                   <div className="bg-yellow-50 p-3 rounded-full">
                      <Calculator className="w-8 h-8 text-yellow-600" />
@@ -458,7 +452,6 @@ function App() {
                    </div>
                </div>
                
-               {/* Pie Chart */}
                {items.length > 0 && (
                   <div className="absolute right-6 top-6 h-16 w-16 opacity-20 md:opacity-100 md:relative md:h-16 md:w-16 md:top-auto md:right-auto hidden lg:block">
                       <ResponsiveContainer width="100%" height="100%">
@@ -480,10 +473,8 @@ function App() {
                )}
             </div>
 
-            {/* Not Found Section */}
             <NotFoundItems items={notFoundItemsList} />
 
-            {/* Main Table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 className="font-bold text-slate-700">Itens do Pedido</h3>
@@ -539,7 +530,6 @@ function App() {
           </div>
         </div>
 
-        {/* Learning Management Modal */}
         <LearningModal 
             isOpen={isLearningModalOpen} 
             onClose={() => setIsLearningModalOpen(false)}
@@ -548,7 +538,6 @@ function App() {
             onRefresh={refreshLearnedMatches}
         />
 
-        {/* History Modal */}
         <HistoryModal
             isOpen={isHistoryModalOpen}
             onClose={() => setIsHistoryModalOpen(false)}
@@ -557,14 +546,11 @@ function App() {
             onRestore={handleLoadHistory}
         />
 
-        {/* Settings Modal */}
         <SettingsModal 
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
         />
 
-        {/* Catalog Manager Modal */}
-        {/* Fix: Added CatalogManagerModal component */}
         <CatalogManagerModal 
             isOpen={isCatalogModalOpen}
             onClose={() => setIsCatalogModalOpen(false)}
@@ -573,12 +559,18 @@ function App() {
             learnedMatches={learnedMatches}
         />
 
-        {/* Export / Print Modal */}
         <ExportModal 
             isOpen={isExportModalOpen}
             onClose={() => setIsExportModalOpen(false)}
             items={items}
             totalValue={totalValue}
+        />
+
+        {/* ADICIONADO DASHBOARDMODAL */}
+        <DashboardModal 
+            isOpen={isDashboardModalOpen}
+            onClose={() => setIsDashboardModalOpen(false)}
+            history={quoteHistory}
         />
         
       </main>
