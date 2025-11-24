@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
@@ -7,14 +8,14 @@ import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
 import { CatalogManagerModal } from './components/CatalogManagerModal';
-import { DashboardModal } from './components/DashboardModal';
+import { DashboardModal } from './components/DashboardModal'; // ADICIONADO
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3 } from 'lucide-react';
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3 } from 'lucide-react'; // ADICIONADO BarChart3
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -47,7 +48,7 @@ function App() {
   // Catalog Manager Modal State
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
 
-  // Dashboard Modal State
+  // Dashboard Modal State - ADICIONADO
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
 
   // Computed
@@ -297,6 +298,7 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
+             {/* ADICIONADO BOTÃO DO DASHBOARD */}
              <button 
                 onClick={() => setIsDashboardModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -548,7 +550,6 @@ function App() {
         <SettingsModal 
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
-            onHistoryChange={refreshHistory}
         />
 
         <CatalogManagerModal 
@@ -566,6 +567,7 @@ function App() {
             totalValue={totalValue}
         />
 
+        {/* ADICIONADO DASHBOARDMODAL */}
         <DashboardModal 
             isOpen={isDashboardModalOpen}
             onClose={() => setIsDashboardModalOpen(false)}
