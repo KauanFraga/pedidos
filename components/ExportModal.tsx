@@ -1,7 +1,3 @@
-<change>
-<file>components/ExportModal.tsx</file>
-<description>Add Observations field to export modal and render it in the PDF layout.</description>
-<content><![CDATA[
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
@@ -521,5 +517,3 @@ Elétrica Padrão
     </div>
   );
 };
-]]></content>
-</change>
