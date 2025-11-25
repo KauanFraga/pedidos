@@ -1,11 +1,8 @@
-<change>
-<file>components/HistoryModal.tsx</file>
-<description>Add Export History button to HistoryModal to allow JSON backup download.</description>
-<content><![CDATA[
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { SavedQuote, HistoryStatus } from '../types';
 import { updateQuoteStatus } from '../services/historyService';
-import { X, Search, Clock, Copy, Trash2, Eye, Calendar, User, ChevronDown, CheckCircle, XCircle, AlertCircle, FileText, TrendingUp, DollarSign, Download } from 'lucide-react';
+import { X, Search, Clock, Copy, Trash2, Eye, Calendar, User, ChevronDown, CheckCircle, XCircle, AlertCircle, FileText, TrendingUp, DollarSign } from 'lucide-react';
 import { formatCurrency } from '../utils/parser';
 
 interface HistoryModalProps {
@@ -80,21 +77,6 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     setExpandedId(expandedId === id ? null : id);
   };
 
-  const handleExportHistory = () => {
-    const data = JSON.stringify(localHistory, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    
-    const date = new Date().toISOString().slice(0, 10);
-    link.href = url;
-    link.download = `historico_orcamentos_backup_${date}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   const renderDate = (dateString: string) => {
       try {
           const d = new Date(dateString);
@@ -131,21 +113,12 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
              <Clock className="w-6 h-6 text-yellow-500" />
              <h2 className="text-xl font-bold">Gestão de Orçamentos</h2>
           </div>
-          <div className="flex items-center gap-3">
-            <button 
-                onClick={handleExportHistory}
-                className="text-sm flex items-center gap-2 bg-white border border-slate-300 px-3 py-1.5 rounded hover:bg-slate-50 text-slate-700 transition-colors shadow-sm"
-                title="Baixar backup do histórico"
-            >
-                <Download className="w-4 h-4" /> Exportar Histórico
-            </button>
-            <button 
-                onClick={onClose} 
-                className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-200 rounded"
-            >
-                <X className="w-6 h-6" />
-            </button>
-          </div>
+          <button 
+            onClick={onClose} 
+            className="text-slate-400 hover:text-slate-600 transition-colors p-1 hover:bg-slate-200 rounded"
+          >
+            <X className="w-6 h-6" />
+          </button>
         </div>
 
         {/* Dashboard Stats */}
@@ -339,5 +312,3 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     </div>
   );
 };
-]]></content>
-</change>
