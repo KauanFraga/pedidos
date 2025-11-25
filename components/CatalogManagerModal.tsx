@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { CatalogItem, LearnedMatch } from '../types';
-import { X, Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { X, Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, Download } from 'lucide-react';
 import { formatCurrency } from '../utils/parser';
 
 interface CatalogManagerModalProps {
@@ -128,6 +128,31 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
     }
   };
 
+  // --- Export Catalog ---
+  const handleExportCatalog = () => {
+    if (!catalog || catalog.length === 0) {
+        alert("O catálogo está vazio.");
+        return;
+    }
+
+    const lines = catalog.map(item => {
+        return `${item.description}\t${item.price.toFixed(2).replace('.', ',')}`;
+    });
+
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    const dateStr = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `catalogo_kf_${dateStr}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // FIXED: Conditional return is now AFTER all hooks
   if (!isOpen) return null;
 
@@ -159,12 +184,22 @@ export const CatalogManagerModal: React.FC<CatalogManagerModalProps> = ({
               />
            </div>
            
-           <button 
-             onClick={openAddModal}
-             className="w-full sm:w-auto px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors shadow-sm"
-           >
-              <Plus className="w-4 h-4" /> Adicionar Produto
-           </button>
+           <div className="flex gap-2 w-full sm:w-auto">
+               <button 
+                 onClick={handleExportCatalog}
+                 className="flex-1 sm:flex-none px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors shadow-sm"
+                 title="Baixar catálogo atual em .txt"
+               >
+                  <Download className="w-4 h-4" /> Baixar .txt
+               </button>
+               
+               <button 
+                 onClick={openAddModal}
+                 className="flex-1 sm:flex-none px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors shadow-sm"
+               >
+                  <Plus className="w-4 h-4" /> Adicionar Produto
+               </button>
+           </div>
         </div>
 
         {/* List */}

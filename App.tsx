@@ -8,14 +8,14 @@ import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
 import { CatalogManagerModal } from './components/CatalogManagerModal';
-import { DashboardModal } from './components/DashboardModal'; // ADICIONADO
+import { DashboardModal } from './components/DashboardModal'; // Import DashboardModal
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
-import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
+import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory, updateSavedQuote } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3 } from 'lucide-react'; // ADICIONADO BarChart3
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save } from 'lucide-react'; // Import BarChart3 and Save
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -30,6 +30,10 @@ function App() {
   const [customerName, setCustomerName] = useState(''); 
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [status, setStatus] = useState<QuoteStatus>(QuoteStatus.IDLE);
+  
+  // Track the current ID of the quote being edited (to update history instead of creating duplicates)
+  const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   
   // Learning System State
   const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
@@ -48,7 +52,7 @@ function App() {
   // Catalog Manager Modal State
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
 
-  // Dashboard Modal State - ADICIONADO
+  // Dashboard Modal State - NEW
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
 
   // Computed
@@ -137,6 +141,25 @@ function App() {
     }
   };
 
+  // Save current quote
+  const saveCurrentQuoteState = () => {
+      if (items.length === 0) return;
+
+      if (currentQuoteId) {
+          // Update existing
+          updateSavedQuote(currentQuoteId, {
+              customerName: customerName,
+              items: items,
+          });
+      } else {
+          // Create new
+          const newQuote = saveQuoteToHistory(customerName, items, inputText);
+          setCurrentQuoteId(newQuote.id);
+      }
+      setLastSavedTime(new Date().toLocaleTimeString());
+      refreshHistory();
+  };
+
   const handleProcess = async () => {
     if (!inputText.trim() || catalog.length === 0) {
       alert("Por favor, carregue o catálogo e digite os itens.");
@@ -207,11 +230,10 @@ function App() {
       const processedItems = finalItems.filter(Boolean);
       setItems(processedItems);
       setStatus(QuoteStatus.COMPLETE);
-
-      if (processedItems.length > 0) {
-        saveQuoteToHistory(customerName, processedItems, inputText);
-        refreshHistory();
-      }
+      
+      // Reset ID because it's a "new generation" unless explicitly saved or loaded
+      setCurrentQuoteId(null);
+      setLastSavedTime(null);
       
     } catch (error) {
       console.error(error);
@@ -221,10 +243,15 @@ function App() {
   };
 
   const handleClear = () => {
+    if (items.length > 0 && !currentQuoteId) {
+        if (!confirm("Deseja limpar o orçamento atual? Dados não salvos serão perdidos.")) return;
+    }
     setItems([]);
     setInputText('');
     setCustomerName(''); 
     setStatus(QuoteStatus.IDLE);
+    setCurrentQuoteId(null);
+    setLastSavedTime(null);
   };
 
   const handleDeleteItem = (id: string) => {
@@ -270,18 +297,29 @@ function App() {
       setItems(quote.items);
       setInputText(quote.originalInputText);
       setCustomerName(quote.customerName);
+      setCurrentQuoteId(quote.id); 
+      setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
       setStatus(QuoteStatus.COMPLETE);
   };
 
   const handleDeleteHistory = (id: string) => {
       deleteQuoteFromHistory(id);
       refreshHistory();
+      if (currentQuoteId === id) {
+          setCurrentQuoteId(null);
+      }
   };
 
   const handleExportExcel = () => {
+    saveCurrentQuoteState();
     const clipboardText = generateExcelClipboard(items);
     navigator.clipboard.writeText(clipboardText);
-    alert("Dados copiados! Abra o Excel e pressione Ctrl+V");
+    alert("Orçamento salvo e dados copiados! Abra o Excel e pressione Ctrl+V");
+  };
+
+  const handleOpenExportModal = () => {
+      saveCurrentQuoteState();
+      setIsExportModalOpen(true);
   };
 
   return (
@@ -298,7 +336,7 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
-             {/* ADICIONADO BOTÃO DO DASHBOARD */}
+             {/* Dashboard Button */}
              <button 
                 onClick={() => setIsDashboardModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -418,19 +456,34 @@ function App() {
                   <div>
                      <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total do Orçamento</p>
                      <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalValue)}</p>
-                     {customerName && <p className="text-sm text-slate-400 mt-1 font-medium">Cliente: {customerName}</p>}
+                     <div className="flex items-center gap-2 mt-1">
+                        {customerName && <span className="text-sm text-slate-600 font-medium">Cliente: {customerName}</span>}
+                        {lastSavedTime && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">Salvo às {lastSavedTime}</span>}
+                     </div>
                   </div>
                </div>
 
                <div className="flex flex-col items-end gap-3 z-10 mt-24 md:mt-0 w-full md:w-auto">
                    <div className="flex gap-2 w-full md:w-auto justify-end">
                        {items.length > 0 && (
-                          <button 
-                            onClick={handleClear}
-                            className="text-slate-500 hover:text-red-600 hover:bg-red-50 px-4 py-2 rounded transition-colors text-sm font-medium flex items-center gap-2"
-                          >
-                             <Trash className="w-4 h-4" /> Limpar
-                          </button>
+                          <>
+                            <button 
+                                onClick={handleClear}
+                                className="text-slate-500 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded transition-colors text-sm font-medium flex items-center gap-1"
+                                title="Limpar tudo"
+                            >
+                                <Trash className="w-4 h-4" />
+                            </button>
+
+                            <button
+                                onClick={saveCurrentQuoteState}
+                                className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors shadow-sm text-sm"
+                                title="Salvar no Histórico"
+                            >
+                                <Save className="w-4 h-4" />
+                                Salvar
+                            </button>
+                          </>
                        )}
                        
                        <button
@@ -443,7 +496,7 @@ function App() {
                        </button>
 
                        <button
-                          onClick={() => setIsExportModalOpen(true)}
+                          onClick={handleOpenExportModal}
                           disabled={items.length === 0}
                           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-sm"
                        >
@@ -567,7 +620,7 @@ function App() {
             totalValue={totalValue}
         />
 
-        {/* ADICIONADO DASHBOARDMODAL */}
+        {/* NEW: Dashboard Modal */}
         <DashboardModal 
             isOpen={isDashboardModalOpen}
             onClose={() => setIsDashboardModalOpen(false)}

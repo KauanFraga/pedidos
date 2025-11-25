@@ -61,6 +61,29 @@ export const updateQuoteStatus = (id: string, status: HistoryStatus) => {
   }
 };
 
+export const updateSavedQuote = (id: string, updates: Partial<SavedQuote>) => {
+  const currentHistory = getHistory();
+  const index = currentHistory.findIndex(q => q.id === id);
+
+  if (index !== -1) {
+    const existingQuote = currentHistory[index];
+    let totalValue = existingQuote.totalValue;
+
+    // If items are being updated, recalculate total value
+    if (updates.items) {
+      totalValue = updates.items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
+    }
+
+    currentHistory[index] = {
+      ...existingQuote,
+      ...updates,
+      totalValue: totalValue,
+      updatedAt: new Date().toISOString()
+    };
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(currentHistory));
+  }
+};
+
 export const deleteQuoteFromHistory = (id: string) => {
   const currentHistory = getHistory();
   const filtered = currentHistory.filter(q => q.id !== id);
