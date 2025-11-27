@@ -1,3 +1,4 @@
+import { CatalogItem } from '../types';
 
 /**
  * This file contains local text processing functions that run before making an AI call.
@@ -8,6 +9,41 @@ interface ParsedLine {
     description: string;
     conversionLog?: string;
 }
+
+/**
+ * Parses the content of a catalog file (CSV) and returns an array of CatalogItem objects.
+ * Assumes a CSV with columns: ID, Description, Price.
+ * 
+ * @param fileContent The raw string content of the CSV file.
+ * @returns An array of CatalogItem.
+ */
+export const parseCatalogFile = (fileContent: string): CatalogItem[] => {
+    const items: CatalogItem[] = [];
+    const lines = fileContent.split(/\r?\n/).filter(line => line.trim() !== '');
+
+    // Skip header line if it exists
+    const startIndex = lines[0] && lines[0].toLowerCase().includes('id') ? 1 : 0;
+
+    for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i];
+        const columns = line.split(';'); // Using semicolon as the delimiter
+
+        if (columns.length >= 3) {
+            const id = columns[0].trim();
+            const description = columns[1].trim();
+            // Convert price from a BRL string like "R$ 1.234,56" to a number
+            const priceString = columns[2].trim().replace('R$', '').replace(/\./g, '').replace(',', '.');
+            const price = parseFloat(priceString);
+
+            if (id && description && !isNaN(price)) {
+                items.push({ id, description, price });
+            }
+        }
+    }
+
+    return items;
+};
+
 
 /**
  * Pre-processes a single line of an order to extract quantity and clean up the description.
