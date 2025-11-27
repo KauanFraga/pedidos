@@ -1,4 +1,7 @@
-
+<change>
+<file>components/ExportModal.tsx</file>
+<description>Refine ExportModal to match screenshot, ensuring observations field is correctly positioned and PDF generation logic is robust.</description>
+<content><![CDATA[
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
@@ -48,44 +51,53 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const discountValue = totalValue * (discountPercent / 100);
   const finalTotal = totalValue - discountValue;
 
+  // Helper to generate PDF promise
+  const generatePdfFile = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+        const element = document.getElementById('printable-invoice');
+        if (!element) {
+            alert("Erro ao encontrar o elemento do orçamento.");
+            reject();
+            return;
+        }
+
+        setIsGenerating(true);
+
+        const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const safeName = customerName.replace(/[^a-zA-Z0-9]/g, '_') || 'cliente';
+        const filename = `orcamento_${quoteNumber}_${safeName}_${dateStr}.pdf`;
+
+        const opt = {
+            margin: 0, 
+            filename: filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        if (window.html2pdf) {
+            window.html2pdf().set(opt).from(element).save().then(() => {
+                resolve();
+            }).catch((err: any) => {
+                console.error("Erro ao gerar PDF", err);
+                alert("Erro ao gerar PDF.");
+                reject();
+            }).finally(() => {
+                setIsGenerating(false);
+            });
+        } else {
+            window.print();
+            resolve();
+            setIsGenerating(false);
+        }
+    });
+  };
+
   const handlePrint = () => {
-    const element = document.getElementById('printable-invoice');
-    if (!element) {
-        alert("Erro ao encontrar o elemento do orçamento.");
-        return;
-    }
-
-    setIsGenerating(true);
-
-    const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-    const safeName = customerName.replace(/[^a-zA-Z0-9]/g, '_') || 'cliente';
-    const filename = `orcamento_${quoteNumber}_${safeName}_${dateStr}.pdf`;
-
-    const opt = {
-        margin: 0, 
-        filename: filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-
-    if (window.html2pdf) {
-        window.html2pdf().set(opt).from(element).save().then(() => {
-            incrementQuoteNumber();
-            setQuoteNumber(prev => prev + 1);
-            setIsGenerating(false);
-        }).catch((err: any) => {
-            console.error("Erro ao gerar PDF", err);
-            setIsGenerating(false);
-            alert("Erro ao gerar PDF. Tente novamente.");
-        });
-    } else {
-        // Fallback if library didn't load
-        window.print();
-        incrementQuoteNumber();
-        setQuoteNumber(prev => prev + 1);
-        setIsGenerating(false);
-    }
+      generatePdfFile().then(() => {
+          incrementQuoteNumber();
+          setQuoteNumber(prev => prev + 1);
+      });
   };
 
   const formatPhone = (value: string) => {
@@ -107,24 +119,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
         return;
     }
 
-    const date = new Date().toLocaleDateString('pt-BR');
-    const config = storeConfig || getStoreConfig();
-    
-    const message = `Olá ${customerName || 'Cliente'}! Segue o orçamento #${quoteNumber} da Elétrica Padrão.
+    // 1. Generate/Download PDF first so user has it ready
+    generatePdfFile().then(() => {
+        // 2. Open WhatsApp with the requested message
+        const message = `Segue anexo do orçamento solicitado. Quaisquer dúvidas ficamos à disposição.`;
+        
+        const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
+        
+        // Increment quote number since we essentially "issued" it
+        incrementQuoteNumber();
+        setQuoteNumber(prev => prev + 1);
 
-📋 Orçamento: ${quoteNumber}
-📅 Data: ${date}
-💰 Valor: ${formatCurrency(totalValue)}
-💵 Total Final: ${formatCurrency(finalTotal)} (${paymentMethod})
-
-Qualquer dúvida, estou à disposição!
-
-Elétrica Padrão
-📞 ${config.phones}
-📱 ${config.whatsapp}`;
-
-    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
+        // Alert user to attach file
+        setTimeout(() => {
+            alert("O PDF foi baixado! Agora, basta anexá-lo na conversa do WhatsApp que foi aberta.");
+            window.open(url, '_blank');
+        }, 1000);
+    });
   };
 
   const paymentOptions = [
@@ -268,7 +279,7 @@ Elétrica Padrão
                 </div>
             </div>
 
-            {/* NEW OBSERVATIONS FIELD */}
+            {/* OBSERVATIONS FIELD */}
             <div className="mt-2">
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Observações</label>
                 <textarea 
@@ -352,7 +363,6 @@ Elétrica Padrão
               <div className="flex">
                 {/* Logo / Store Name */}
                 <div className="w-[35%] p-2 border-r border-black flex flex-col items-center justify-center text-center">
-                   {/* Optimized for the specific "Elétrica Padrão" Logo (Wide Format) */}
                    {config.logoUrl ? (
                       <div className="w-full h-[80px] flex items-center justify-center overflow-hidden">
                         <img 
@@ -432,7 +442,7 @@ Elétrica Padrão
                    const isEven = idx % 2 === 0;
 
                    return (
-                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}> {/* Zebrado (Slate-200 / White) */}
+                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}>
                        <td className="text-center font-bold" style={{ color: '#000' }}>{item.quantity}</td>
                        <td className="uppercase px-2" style={{ color: '#000' }}>{desc}</td>
                        <td className="text-right" style={{ color: '#000' }}>{item.catalogItem ? formatCurrency(unit) : '-'}</td>
@@ -440,7 +450,6 @@ Elétrica Padrão
                      </tr>
                    );
                 })}
-                {/* Empty rows to fill space if needed */}
                 {items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
                   <tr key={`empty-${i}`} style={{ height: '22px' }}>
                     <td style={{ border: '1px solid #000' }}></td>
@@ -480,7 +489,7 @@ Elétrica Padrão
                </div>
             </div>
 
-            {/* OBSERVATIONS SECTION */}
+            {/* OBSERVATIONS SECTION IN PDF */}
             {observations && (
                 <div style={{ 
                     border: '1px solid #000', 
@@ -492,7 +501,7 @@ Elétrica Padrão
                     color: '#000',
                     position: 'relative'
                 }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase' }}>Observações:</div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase' }}>OBSERVAÇÕES:</div>
                     <div style={{ whiteSpace: 'pre-wrap' }}>
                         {observations}
                     </div>
@@ -521,3 +530,5 @@ Elétrica Padrão
     </div>
   );
 };
+]]></content>
+</change>
