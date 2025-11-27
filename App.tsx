@@ -14,16 +14,16 @@ import {
 } from "@shopify/polaris";
 import { useState, useCallback } from "react";
 import { processOrderHybrid } from "./services/geminiService";
-import { QuoteItem, CatalogItem } from "./types";
+import { QuoteItem, CatalogItem, SavedQuote } from "./types";
 import { QuoteItemRow } from "./components/QuoteItemRow";
 import { FileUploader } from "./components/FileUploader";
 import { ExportModal } from "./components/ExportModal";
 import { LearningModal } from "./components/LearningModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { CatalogManagerModal } from "./components/CatalogManagerModal";
-import { HistoryModal, HistoryEntry } from "./components/HistoryModal";
-import { addHistoryEntry, getHistory } from "./services/historyService";
-
+import { HistoryModal } from "./components/HistoryModal";
+import { getHistory, addQuoteToHistory, deleteQuoteFromHistory } from "./services/historyService";
+import { v4 as uuidv4 } from 'uuid';
 
 function App() {
   const [orderText, setOrderText] = useState("");
@@ -35,7 +35,7 @@ function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<SavedQuote[]>([]);
 
   // Load catalog from local storage or default
   const [catalog, setCatalog] = useState<CatalogItem[]>(() => {
@@ -51,6 +51,8 @@ function App() {
     ];
   });
 
+  const totalValue = quoteItems.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
+
   const handleSubmit = useCallback(async () => {
     if (!orderText.trim()) {
       setError("Por favor, insira um pedido.");
@@ -64,15 +66,6 @@ function App() {
     try {
       const result = await processOrderHybrid(catalog, orderText);
       setQuoteItems(result.items);
-      
-      // Add to history
-      if(result.items.length > 0) {
-        addHistoryEntry({ 
-          date: new Date(), 
-          orderText: orderText,
-          items: result.items
-        });
-      }
 
     } catch (err: any) {
       console.error(err); // Log the full error
@@ -95,11 +88,15 @@ function App() {
     setIsHistoryModalOpen(true);
   };
 
-  const handleLoadFromHistory = (entry: HistoryEntry) => {
-    setOrderText(entry.orderText);
-    setQuoteItems(entry.items);
+  const handleRestoreFromHistory = (quote: SavedQuote) => {
+    setQuoteItems(quote.items);
     setIsHistoryModalOpen(false);
   };
+
+  const handleDeleteFromHistory = (id: string) => {
+    deleteQuoteFromHistory(id);
+    setHistory(getHistory()); // Refresh history
+  }
 
   return (
     <Page fullWidth title="Assistente de Orçamentos KF Elétrica">
@@ -202,6 +199,7 @@ function App() {
         isOpen={isExportModalOpen} 
         onClose={() => setIsExportModalOpen(false)} 
         items={quoteItems} 
+        totalValue={totalValue}
       />
       <LearningModal 
         isOpen={isLearningModalOpen} 
@@ -221,7 +219,8 @@ function App() {
         isOpen={isHistoryModalOpen}
         onClose={() => setIsHistoryModalOpen(false)}
         history={history}
-        onLoad={handleLoadFromHistory}
+        onDelete={handleDeleteFromHistory}
+        onRestore={handleRestoreFromHistory}
       />
 
     </Page>
