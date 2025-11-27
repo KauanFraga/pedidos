@@ -1,151 +1,129 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { CatalogItem, ProcessedResult } from "../types";
-import { getConversionPromptInstructions } from "../utils/conversionRules";
+import { CatalogItem, ProcessedResult, QuoteItem } from "../types";
+import { applyConversions } from "../utils/parser";
 
 // Initialize API Client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const processOrderWithGemini = async (
-  catalog: CatalogItem[],
-  orderText: string
+// Memoize the catalog string to avoid re-computing it on every call
+let catalogStringCache: string | null = null;
+let catalogVersion: number = 0;
+
+const getCatalogString = (catalog: CatalogItem[]): string => {
+    if (catalogStringCache && catalog.length === catalogVersion) {
+        return catalogStringCache;
+    }
+    console.log("Re-generating catalog string...");
+    catalogVersion = catalog.length;
+    catalogStringCache = catalog
+        .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
+        .join('\n');
+    return catalogStringCache;
+};
+
+
+/**
+ * Processes a full, unstructured order text using a hybrid approach.
+ * It preprocesses the text locally and uses AI only for the fuzzy matching part.
+ * @param catalog The complete product catalog.
+ * @param orderText The user's raw input text.
+ * @returns A promise that resolves to the processed quote.
+ */
+export const processOrderHybrid = async (
+    catalog: CatalogItem[],
+    orderText: string
 ): Promise<ProcessedResult> => {
-  
-  // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
-  const catalogString = catalog
-    .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
-    .join('\n');
-
-  const model = "gemini-2.5-flash";
-  
-  const conversionInstructions = getConversionPromptInstructions();
-
-  const systemInstruction = `
-    You are an expert sales assistant at an electrical supply store "KF Elétrica".
-    Your task is to map a customer's unstructured order list to our product catalog.
     
-    CRITICAL BRAND & MATERIAL KNOWLEDGE:
-    - **CRITICAL DISTINCTION**: You MUST treat these as three separate items. They are NOT synonyms.
-      - "ELETRODUTO": Refers to the rigid pipe/tube for wiring (e.g., PVC or metal bars).
-      - "CONDULETE": Refers to the junction box or fitting that attaches to Eletrodutos.
-      - "CONDUÍTE" (or "CONDUITE"): Refers to the flexible, often yellow or orange, corrugated hose ('mangueira corrugada').
-    - A request for "conduíte" MUST NOT be matched to a rigid "eletroduto". They are different products.
-    - Brands often abbreviated: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria, "EBONY" = Margirius Preto Brilhante.
-    - Colors for Conduletes/Eletrodutos/Luvas/Curvas: "CZ" or "CINZA" (Grey), "BR" or "BRANCO" (White), "PT" or "PRETO" (Black), "AL" or "ALUMINIO".
-    - Synonyms: "TOMADA" might match "MÓDULO" or "MOD" in the catalog if a complete set isn't found.
-    - **TERMINAL TUBULAR** is the same as **ILHÓS**. Match "Terminal Tubular" request to "ILHÓS" products.
-    
-    SMART KIT EXPANSION ("CONJUNTO"):
-    - If customer asks for "Conjunto Condulete" or "Condulete Completo" (e.g., with switch/socket):
-      1. First, look for a pre-assembled kit product in the catalog.
-      2. If NOT found, you typically need to match individual parts: 
-         - The Condulete Box itself.
-         - The appropriate Plate (Tampa/Placa) e.g., "Tampa 1 posto".
-         - The Module (Módulo) e.g., "Módulo Tomada 20A" or "Módulo Interruptor".
-      3. HOWEVER, for this specific task, try to map to the MAIN component (Condulete or Kit) available in the catalog. If the catalog has "CONJUNTO MONTADO", use it. If not, match the closest single item (Condulete) but add a note/warning if possible (or let the user add the rest). 
-      *Ideally, if the catalog lists "CONJUNTO", use it.*
+    const lines = orderText.split('\n').filter(line => line.trim() !== '');
+    const processedItems: QuoteItem[] = [];
 
-    ADVANCED UNIT CONVERSION (CONDUITS/ELETRODUTOS):
-    - **ELETRODUTOS / CANO / TUBO** are typically sold in **3-METER BARS** (Barras de 3 metros).
-    - If the customer requests METERS (e.g., "7 metros eletroduto"), you must calculate the number of BARS required.
-    - Logic: Quantity = CEIL(Requested Meters / 3).
-    - Example: "7 metros eletroduto" -> 7 / 3 = 2.33 -> Needs **3 BARS** (Quantity: 3).
-    - Example: "10 metros tubo" -> 10 / 3 = 3.33 -> Needs **4 BARS** (Quantity: 4).
-    - **IMPORTANT:** Only apply this rule if the matching catalog item is sold by the BAR (usually implied for rigid conduits/eletrodutos, NOT flexible hoses/corrugados which are sold by meter/rolo). Check if catalog item description contains "BARRA" or implies rigid conduit. If it's "ELETRODUTO FLEXÍVEL" or "CORRUGADO", keep in meters (or convert rolo).
+    for (const line of lines) {
+        // 1. Pre-process locally
+        const { quantity, description, conversionLog } = applyConversions(line);
 
-    DEFAULT ATTRIBUTES:
-    - CABLES/WIRES ("cabo", "fio", "flex"): If the customer DOES NOT specify a color, YOU MUST MATCH TO BLACK ("PT", "PRETO").
-      Example: "100m cabo 2.5mm" -> Match to "CABO FLEX 2,5MM PT" or "PRETO".
-    
-    CONTEXT & PATTERN INFERENCE (VERY IMPORTANT):
-    - The customer list generally follows a strict theme based on the first few items.
-    - BRAND INFERENCE: If the first item of a category (e.g., switches/sockets) specifies a brand (e.g., "MG" or "LIZ"), assume ALL subsequent ambiguous items in that category are the SAME BRAND. 
-      * Example: If Item 1 is "Placa 4x2 MG", and Item 2 is just "Interruptor Simples", you MUST match Item 2 to a "MG" product.
-    - MATERIAL/COLOR INFERENCE: If the first item of a conduit infrastructure (e.g., "eletroduto") specifies a color/material (e.g., "PRETO", "CINZA", "ALUMINIO"), assume ALL subsequent fittings (curvas, luvas, buchas) are the SAME COLOR/MATERIAL.
-      * Example: If Item 1 is "Eletroduto 3/4 Preto", and Item 2 is "Curva 90", you MUST match Item 2 to a "Preto" product.
+        // 2. Use AI for the complex part: matching description to catalog
+        const catalogIndex = await findBestMatchForProduct(description, catalog);
+        
+        const isFound = catalogIndex !== -1 && catalog[catalogIndex];
+        const catalogItem = isFound ? catalog[catalogIndex] : null;
 
-    ${conversionInstructions}
+        processedItems.push({
+            id: crypto.randomUUID(),
+            quantity: quantity,
+            originalRequest: line,
+            catalogItem: catalogItem,
+            conversionLog: conversionLog
+        });
+    }
 
-    Rules:
-    1. Analyze the "CUSTOMER REQUEST" line by line. If a line contains delimiters like "-" or ";" with multiple items, split them.
-    2. For EACH item in the request, return an object in the output array in the EXACT SAME ORDER.
-    3. Identify the Quantity and the Product. 
-       - Extract number strictly. If "100m", quantity is 100. 
-       - If "- 1 item", quantity is 1. 
-       - If no quantity is found, DEFAULT TO 1.
-    4. Find the best matching product in the provided Catalog using fuzzy matching logic AND the Context/Pattern Inference rules above.
-    5. If a product is found, set "catalogIndex" to the Index provided in the catalog text.
-    6. If a product is NOT found in the catalog with reasonable confidence, set "catalogIndex" to -1.
-  `;
+    return { items: processedItems };
+};
 
-  const prompt = `
-    CATALOG:
-    ${catalogString}
 
-    CUSTOMER REQUEST:
-    ${orderText}
-  `;
+/**
+ * Uses AI to find the best matching product in the catalog for a given description.
+ * This function is optimized to be called multiple times in a loop.
+ * @param productDescription The clean product description (e.g., "interruptor simples 10a").
+ * @param catalog The complete product catalog.
+ * @returns The index of the best match in the catalog, or -1 if not found.
+ */
+export const findBestMatchForProduct = async (
+    productDescription: string,
+    catalog: CatalogItem[]
+): Promise<number> => {
 
-  try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            mappedItems: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  originalRequest: { type: Type.STRING },
-                  quantity: { type: Type.NUMBER },
-                  catalogIndex: { type: Type.INTEGER, description: "Index from catalog if found, -1 if not found" },
-                  conversionLog: { type: Type.STRING, description: "Explanation if unit conversion was applied (e.g., '7m -> 3 barras (3m)'), otherwise null" }
-                },
-                required: ["originalRequest", "quantity", "catalogIndex"]
-              }
+    const catalogString = getCatalogString(catalog);
+    const model = "gemini-1.5-flash"; 
+
+    const systemInstruction = `
+        You are a specialized search engine for an electrical supply store's product catalog.
+        Your ONLY task is to find the single best match for a given product description in the provided catalog.
+        - You must return the "Index" of the matching item.
+        - The user's query may contain typos or be abbreviated. Use fuzzy matching.
+        - If no reasonably close match is found, you MUST return -1.
+        - Respond ONLY with the JSON object. Do not add any conversational text or markdown.
+
+        CRITICAL KNOWLEDGE FOR ACCURATE MATCHING:
+        - **Distinction**: "ELETRODUTO" (rigid pipe), "CONDULETE" (junction box), and "CONDUÍTE" (flexible hose) are DIFFERENT items. Do not match them for each other.
+        - **Brands**: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria.
+        - **Synonyms**: "TOMADA" can match "MÓDULO TOMADA". "TERMINAL TUBULAR" is the same as "ILHÓS".
+        - **Default Color**: For cables/wires, if no color is specified, default to BLACK ("PT", "PRETO").
+    `;
+
+    const prompt = `
+        CATALOG:
+        ${catalogString}
+
+        PRODUCT DESCRIPTION:
+        "${productDescription}"
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                systemInstruction: systemInstruction,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        catalogIndex: {
+                            type: Type.INTEGER,
+                            description: "The catalog index of the best match, or -1."
+                        }
+                    },
+                    required: ["catalogIndex"]
+                }
             }
-          }
-        }
-      }
-    });
+        });
 
-    const text = response.text;
-    if (!text) throw new Error("No response from Gemini");
+        const data = JSON.parse(response.text);
+        return data.catalogIndex;
 
-    const data = JSON.parse(text);
-    
-    // Map back to internal types
-    const items = (data.mappedItems || []).map((item: any) => {
-      // Check if index is valid and not -1
-      const isFound = item.catalogIndex !== -1 && item.catalogIndex !== null && catalog[item.catalogIndex];
-      const catalogItem = isFound ? catalog[item.catalogIndex] : null;
-
-      // Strict Quantity Sanitization
-      let parsedQty = parseFloat(item.quantity);
-      if (isNaN(parsedQty) || parsedQty <= 0) {
-         parsedQty = 1; // Default fallback
-      }
-
-      return {
-        id: crypto.randomUUID(),
-        quantity: parsedQty,
-        originalRequest: item.originalRequest,
-        catalogItem: catalogItem,
-        conversionLog: item.conversionLog || undefined
-      };
-    });
-
-    return {
-      items: items
-    };
-
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    throw error;
-  }
+    } catch (error) {
+        console.error("Gemini Matching Error for:", productDescription, error);
+        return -1; // Return -1 on error to avoid breaking the entire loop
+    }
 };
