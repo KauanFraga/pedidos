@@ -22,10 +22,10 @@ import { LearningModal } from "./components/LearningModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { CatalogManagerModal } from "./components/CatalogManagerModal";
 import { HistoryModal } from "./components/HistoryModal";
-import { getHistory, addQuoteToHistory, deleteQuoteFromHistory } from "./services/historyService";
-import { v4 as uuidv4 } from 'uuid';
+import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from "./services/historyService";
 
 function App() {
+  const [customerName, setCustomerName] = useState("");
   const [orderText, setOrderText] = useState("");
   const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +66,10 @@ function App() {
     try {
       const result = await processOrderHybrid(catalog, orderText);
       setQuoteItems(result.items);
+      
+      if (result.items.length > 0) {
+        saveQuoteToHistory(customerName, result.items, orderText);
+      }
 
     } catch (err: any) {
       console.error(err); // Log the full error
@@ -73,7 +77,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [orderText, catalog]);
+  }, [orderText, catalog, customerName]);
 
   const handleUpdateItem = (id: string, updatedItem: QuoteItem) => {
     setQuoteItems(quoteItems.map(item => item.id === id ? updatedItem : item));
@@ -89,6 +93,8 @@ function App() {
   };
 
   const handleRestoreFromHistory = (quote: SavedQuote) => {
+    setCustomerName(quote.customerName);
+    setOrderText(quote.originalInputText || '');
     setQuoteItems(quote.items);
     setIsHistoryModalOpen(false);
   };
@@ -117,6 +123,13 @@ function App() {
           <Card>
             <BlockStack gap="400">
               <Text as="h2" variant="headingMd">1. Cole o pedido do cliente</Text>
+              <TextField
+                label="Nome do Cliente (Opcional)"
+                value={customerName}
+                onChange={setCustomerName}
+                autoComplete="off"
+                placeholder="Ex: João da Silva"
+              />
               <FileUploader onTextRead={setOrderText} />
               <TextField
                 label="Ou insira o texto do pedido:"
@@ -186,7 +199,7 @@ function App() {
         <Layout.Section>
           <div style={{textAlign: 'center', color: '#888'}}>
             <Text as="p" variant="bodySm">
-              Assistente de Orçamentos v2.0 - 
+              Assistente de Orçamentos v2.1 - 
               <Link url="https://github.com/KauanFraga/pedidos" target="_blank">Ver no GitHub</Link>
             </Text>
           </div>
@@ -200,6 +213,7 @@ function App() {
         onClose={() => setIsExportModalOpen(false)} 
         items={quoteItems} 
         totalValue={totalValue}
+        customerName={customerName}
       />
       <LearningModal 
         isOpen={isLearningModalOpen} 
