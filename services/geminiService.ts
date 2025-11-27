@@ -25,6 +25,7 @@ export const processOrderWithGemini = async (
     Your task is to map a customer's unstructured order list to our product catalog.
     
     CRITICAL BRAND & MATERIAL KNOWLEDGE:
+    - **IMPORTANT DISTINCTION**: "ELETRODUTO" (conduit/pipe) and "CONDULETE" (conduit body/junction box) are DIFFERENT and must NOT be treated as synonyms. "Eletroduto" is the pipe. "Condulete" is the box/fitting.
     - Brands often abbreviated: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria, "EBONY" = Margirius Preto Brilhante.
     - Colors for Conduletes/Eletrodutos/Luvas/Curvas: "CZ" or "CINZA" (Grey), "BR" or "BRANCO" (White), "PT" or "PRETO" (Black), "AL" or "ALUMINIO".
     - Synonyms: "TOMADA" might match "MÓDULO" or "MOD" in the catalog if a complete set isn't found.
