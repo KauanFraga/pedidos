@@ -1,4 +1,7 @@
-
+<change>
+<file>components/DashboardModal.tsx</file>
+<description>Ensure DashboardModal provides visual analytics (Charts/KPIs) distinct from the list-based HistoryModal.</description>
+<content><![CDATA[
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -58,13 +61,23 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   // --- Metrics Calculation ---
   const metrics = useMemo(() => {
+    if (filteredHistory.length === 0) {
+        return {
+            totalQuotes: 0,
+            approved: { count: 0, value: 0 },
+            pending: { count: 0, value: 0 },
+            lost: { count: 0, value: 0 },
+            conversionRate: 0
+        };
+    }
+
     const approved = filteredHistory.filter(q => q.status === 'APROVADO');
     const pending = filteredHistory.filter(q => q.status === 'PENDENTE');
     const lost = filteredHistory.filter(q => q.status === 'PERDIDO');
 
-    const totalRevenue = approved.reduce((acc, q) => acc + q.totalValue, 0);
-    const potentialRevenue = pending.reduce((acc, q) => acc + q.totalValue, 0);
-    const lostRevenue = lost.reduce((acc, q) => acc + q.totalValue, 0);
+    const totalRevenue = approved.reduce((acc, q) => acc + (q.totalValue || 0), 0);
+    const potentialRevenue = pending.reduce((acc, q) => acc + (q.totalValue || 0), 0);
+    const lostRevenue = lost.reduce((acc, q) => acc + (q.totalValue || 0), 0);
 
     const closedDeals = approved.length + lost.length;
     const conversionRate = closedDeals > 0 
@@ -95,11 +108,15 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     }
 
     filteredHistory.forEach(q => {
-      const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
-      if (!data[dateKey]) {
-          data[dateKey] = { date: dateKey, count: 0 };
+      try {
+          const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
+          if (!data[dateKey]) {
+              data[dateKey] = { date: dateKey, count: 0 };
+          }
+          data[dateKey].count += 1;
+      } catch (e) {
+          // Ignore
       }
-      data[dateKey].count += 1;
     });
 
     return Object.values(data);
@@ -115,6 +132,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   const topProducts = useMemo(() => {
     const productMap: Record<string, { name: string, qty: number, total: number }> = {};
+    
     const approvedQuotes = filteredHistory.filter(q => q.status === 'APROVADO');
 
     approvedQuotes.forEach(quote => {
@@ -182,7 +200,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
         {/* Content Scrollable Area */}
         <div className="overflow-y-auto flex-1 p-6 space-y-6">
            
-           {/* 1. KPI Cards */}
+           {/* KPI Cards */}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               
               <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 relative overflow-hidden group">
@@ -380,3 +398,5 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     </div>
   );
 };
+]]></content>
+</change>
