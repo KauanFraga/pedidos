@@ -1,6 +1,6 @@
 import React from 'react';
 import { QuoteItem, CatalogItem } from '../types';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 import { Trash2, AlertCircle, Brain, ArrowRightLeft, Check } from 'lucide-react';
 import { SearchableSelect } from './SearchableSelect';
 import { saveLearnedMatch } from '../services/learningService';
