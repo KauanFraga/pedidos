@@ -105,19 +105,18 @@ function App() {
   }
 
   return (
-    <Page fullWidth title="Assistente de Orçamentos KF Elétrica">
-      <Layout>
-        
-        {/* Header Actions */}
-        <Layout.Section>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+    <div className="bg-slate-100 min-h-screen">
+    <Page fullWidth>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-slate-800">Assistente de Orçamentos KF Elétrica</h1>
+        <div className="flex items-center gap-2">
             <Button onClick={handleOpenHistory}>Histórico</Button>
             <Button onClick={() => setIsCatalogModalOpen(true)}>Catálogo</Button>
             <Button onClick={() => setIsLearningModalOpen(true)}>Aprender</Button>
             <Button onClick={() => setIsSettingsModalOpen(true)}>Configurações</Button>
-          </div>
-        </Layout.Section>
-
+        </div>
+      </div>
+      <Layout>
         {/* Main Input Area */}
         <Layout.Section>
           <Card>
@@ -238,6 +237,7 @@ function App() {
       />
 
     </Page>
+    </div>
   );
 }
 
