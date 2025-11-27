@@ -10,6 +10,16 @@ interface SearchableSelectProps {
   isError?: boolean;
 }
 
+// Helper function to normalize and split search terms
+const getSearchTokens = (term: string) => {
+    return term
+        .toLowerCase()
+        .normalize("NFD") // Decompose accented characters
+        .replace(/[̀-ͯ]/g, "") // Remove diacritics
+        .split(' ')
+        .filter(Boolean); // Remove empty strings
+};
+
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   catalog,
   selectedItemId,
@@ -27,14 +37,40 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     catalog.find(c => c.id === selectedItemId), 
   [catalog, selectedItemId]);
 
+  // Memoize the normalized catalog for performance
+  const normalizedCatalog = useMemo(() => 
+      catalog.map(item => ({
+          ...item,
+          normalizedDescription: item.description
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[̀-ͯ]/g, "")
+      })), [catalog]);
+
   // Filter options based on search term
   const filteredOptions = useMemo(() => {
-    if (!searchTerm) return catalog.slice(0, 100); // Show top 100 by default for perf
-    const lowerTerm = searchTerm.toLowerCase();
-    return catalog
-      .filter(item => item.description.toLowerCase().includes(lowerTerm))
+    if (!searchTerm) {
+        // When no search term, show all items, maintaining original catalog reference
+        return catalog.slice(0, 200); 
+    }
+
+    const searchTokens = getSearchTokens(searchTerm);
+
+    if (searchTokens.length === 0) {
+        return catalog.slice(0, 200);
+    }
+    
+    // Use the pre-normalized catalog for filtering
+    return normalizedCatalog
+      .filter(item => {
+        // Check if all search tokens are present in the item's normalized description
+        return searchTokens.every(token => item.normalizedDescription.includes(token));
+      })
+      // Return the original catalog items, not the normalized ones
+      .map(item => catalog.find(c => c.id === item.id)!) 
       .slice(0, 100); // Limit results for performance
-  }, [catalog, searchTerm]);
+
+  }, [catalog, searchTerm, normalizedCatalog]);
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -102,7 +138,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               </li>
             ) : (
               filteredOptions.map((item) => (
-                <li
+                item && <li
                   key={item.id}
                   onClick={() => handleSelect(item.id)}
                   className={`
