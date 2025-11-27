@@ -193,7 +193,7 @@ function App() {
               <Link url="https://github.com/KauanFraga/pedidos" target="_blank">Ver no GitHub</Link>
             </Text>
           </div>
-        </Layout.section>
+        </Layout.Section>
 
       </Layout>
 
