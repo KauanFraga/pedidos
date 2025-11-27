@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { getStoreConfig, incrementQuoteNumber } from '../services/settingsService';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 import { FileText, X, Download, AlertCircle } from 'lucide-react';
 
 interface PdfGeneratorModalProps {

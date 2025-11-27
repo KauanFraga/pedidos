@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { CatalogItem, LearnedMatch } from '../types';
 import { X, Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, Download } from 'lucide-react';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 
 interface CatalogManagerModalProps {
   isOpen: boolean;

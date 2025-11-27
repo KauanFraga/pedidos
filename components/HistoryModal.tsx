@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { SavedQuote, HistoryStatus } from '../types';
 import { updateQuoteStatus } from '../services/historyService';
 import { X, Search, Clock, Copy, Trash2, Eye, Calendar, User, ChevronDown, CheckCircle, XCircle, AlertCircle, FileText, TrendingUp, Download } from 'lucide-react';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 
 interface HistoryModalProps {
   isOpen: boolean;

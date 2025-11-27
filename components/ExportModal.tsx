@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 import { X, Printer, User, FileText, Settings, Download, CreditCard, MessageCircle, Edit3 } from 'lucide-react';
 
 interface ExportModalProps {

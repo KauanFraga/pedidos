@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
-import { formatCurrency } from '../utils/parser';
+import { formatCurrency } from '../utils/currency';
 import { X, TrendingUp, DollarSign, FileText, AlertCircle, CheckCircle, XCircle, BarChart3, PieChart as PieIcon } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
