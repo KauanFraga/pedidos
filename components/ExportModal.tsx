@@ -529,5 +529,4 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
     </div>
   );
 };
-]]></content>
-</change>
+
