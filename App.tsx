@@ -1,26 +1,36 @@
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
 import { NotFoundItems } from './components/NotFoundItems';
-import { LearningModal } from './components/LearningModal';
-import { HistoryModal } from './components/HistoryModal';
-import { ExportModal } from './components/ExportModal'; 
-import { SettingsModal } from './components/SettingsModal';
-import { CatalogManagerModal } from './components/CatalogManagerModal';
-import { DashboardModal } from './components/DashboardModal'; // Import DashboardModal
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory, updateSavedQuote } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save } from 'lucide-react'; // Import BarChart3 and Save
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save, Loader2 } from 'lucide-react'; 
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+
+// LAZY LOAD MODALS
+const LearningModal = lazy(() => import('./components/LearningModal').then(module => ({ default: module.LearningModal })));
+const HistoryModal = lazy(() => import('./components/HistoryModal').then(module => ({ default: module.HistoryModal })));
+const ExportModal = lazy(() => import('./components/ExportModal').then(module => ({ default: module.ExportModal })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsModal })));
+const CatalogManagerModal = lazy(() => import('./components/CatalogManagerModal').then(module => ({ default: module.CatalogManagerModal })));
+const DashboardModal = lazy(() => import('./components/DashboardModal').then(module => ({ default: module.DashboardModal })));
 
 const COLORS = ['#22c55e', '#ef4444'];
 const CATALOG_STORAGE_KEY = 'orcafacil_catalogo';
 const CATALOG_DATE_KEY = 'orcafacil_catalogo_data';
+
+const ModalLoader = () => (
+  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/20 backdrop-blur-sm">
+    <div className="bg-white p-4 rounded-lg shadow-xl flex items-center gap-3">
+      <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+      <span className="text-sm font-medium text-slate-700">Carregando interface...</span>
+    </div>
+  </div>
+);
 
 function App() {
   // State
@@ -31,34 +41,31 @@ function App() {
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [status, setStatus] = useState<QuoteStatus>(QuoteStatus.IDLE);
   
-  // Track the current ID of the quote being edited (to update history instead of creating duplicates)
   const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
-  
-  // Learning System State
-  const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
-  const [learnedMatches, setLearnedMatches] = useState<LearnedMatch[]>([]);
 
-  // History System State
+  // Quote Financials
+  const [paymentMethod, setPaymentMethod] = useState('À VISTA');
+  const [discountPercent, setDiscountPercent] = useState(0);
+  
+  // Modal States
+  const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+  const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
+  const [learnedMatches, setLearnedMatches] = useState<LearnedMatch[]>([]);
   const [quoteHistory, setQuoteHistory] = useState<SavedQuote[]>([]);
 
-  // Export Modal State
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  // Settings Modal State
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
-  // Catalog Manager Modal State
-  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
-
-  // Dashboard Modal State - NEW
-  const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
-
   // Computed
-  const totalValue = useMemo(() => {
+  const subTotalValue = useMemo(() => {
     return items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
   }, [items]);
+
+  const totalValue = useMemo(() => {
+      return subTotalValue * (1 - discountPercent / 100);
+  }, [subTotalValue, discountPercent]);
 
   const notFoundItemsList = useMemo(() => {
     return items.filter(i => i.catalogItem === null).map(i => i.originalRequest);
@@ -77,13 +84,9 @@ function App() {
 
   // Effects
   useEffect(() => {
-    // Load learned matches
     setLearnedMatches(getLearnedMatches());
-
-    // Load History
     setQuoteHistory(getHistory());
 
-    // Load persisted catalog
     try {
         const savedCatalog = localStorage.getItem(CATALOG_STORAGE_KEY);
         const savedDate = localStorage.getItem(CATALOG_DATE_KEY);
@@ -111,18 +114,15 @@ function App() {
     setQuoteHistory(getHistory());
   };
 
-  // Handlers
   const handleUpload = (uploadedCatalog: CatalogItem[]) => {
     const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
-    
     setCatalog(uploadedCatalog);
     setCatalogDate(now);
-    
     try {
         localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(uploadedCatalog));
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
-        console.error("Failed to save catalog to storage (likely quota exceeded)", e);
+        console.error("Failed to save catalog to storage", e);
         alert("Atenção: O catálogo é muito grande para ser salvo no navegador. Ele funcionará agora, mas você precisará enviá-lo novamente se recarregar a página.");
     }
   };
@@ -131,7 +131,6 @@ function App() {
     const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
     setCatalog(newCatalog);
     setCatalogDate(now);
-    
     try {
         localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(newCatalog));
         localStorage.setItem(CATALOG_DATE_KEY, now);
@@ -141,19 +140,18 @@ function App() {
     }
   };
 
-  // Save current quote
   const saveCurrentQuoteState = () => {
       if (items.length === 0) return;
 
       if (currentQuoteId) {
-          // Update existing
           updateSavedQuote(currentQuoteId, {
               customerName: customerName,
               items: items,
+              paymentMethod: paymentMethod,
+              discount: discountPercent
           });
       } else {
-          // Create new
-          const newQuote = saveQuoteToHistory(customerName, items, inputText);
+          const newQuote = saveQuoteToHistory(customerName, items, inputText, paymentMethod, discountPercent);
           setCurrentQuoteId(newQuote.id);
       }
       setLastSavedTime(new Date().toLocaleTimeString());
@@ -169,7 +167,6 @@ function App() {
     setStatus(QuoteStatus.PROCESSING);
     try {
       const lines = inputText.split('\n').filter(l => l.trim() !== '');
-      
       const finalItems: QuoteItem[] = new Array(lines.length);
       const linesToProcess: { text: string, originalIndex: number }[] = [];
 
@@ -182,16 +179,13 @@ function App() {
             const catalogItem = catalog.find(c => c.id === matchId);
             if (catalogItem) {
                 foundLocally = true;
-                
                 let quantity = 1;
                 const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)/);
                 if (qtyMatch) {
                     const q = parseFloat(qtyMatch[1].replace(',', '.'));
                     if (!isNaN(q) && q > 0) quantity = q;
                 }
-
                 const { newQuantity, log } = applyConversions(line, quantity);
-
                 finalItems[idx] = {
                     id: crypto.randomUUID(),
                     quantity: newQuantity,
@@ -202,7 +196,6 @@ function App() {
                 };
             }
          }
-         
          if (!foundLocally) {
              linesToProcess.push({ text: line, originalIndex: idx });
          }
@@ -216,24 +209,22 @@ function App() {
               if (resultIdx < linesToProcess.length) {
                   const originalIndex = linesToProcess[resultIdx].originalIndex;
                   finalItems[originalIndex] = item;
-
                   if (item.catalogItem) {
                     saveLearnedMatch(item.originalRequest, item.catalogItem);
                     item.isLearned = true;
                   }
               }
           });
-          
           refreshLearnedMatches();
       }
 
       const processedItems = finalItems.filter(Boolean);
       setItems(processedItems);
       setStatus(QuoteStatus.COMPLETE);
-      
-      // Reset ID because it's a "new generation" unless explicitly saved or loaded
-      setCurrentQuoteId(null);
+      setCurrentQuoteId(null); 
       setLastSavedTime(null);
+      setPaymentMethod('À VISTA');
+      setDiscountPercent(0);
       
     } catch (error) {
       console.error(error);
@@ -252,6 +243,8 @@ function App() {
     setStatus(QuoteStatus.IDLE);
     setCurrentQuoteId(null);
     setLastSavedTime(null);
+    setPaymentMethod('À VISTA');
+    setDiscountPercent(0);
   };
 
   const handleDeleteItem = (id: string) => {
@@ -271,7 +264,6 @@ function App() {
          catalogItem: catalogProduct,
          isLearned: true 
       } : i));
-      
       if (itemToUpdate) {
           saveLearnedMatch(itemToUpdate.originalRequest, catalogProduct);
           refreshLearnedMatches();
@@ -298,6 +290,8 @@ function App() {
       setInputText(quote.originalInputText);
       setCustomerName(quote.customerName);
       setCurrentQuoteId(quote.id); 
+      setPaymentMethod(quote.paymentMethod || 'À VISTA');
+      setDiscountPercent(quote.discount || 0);
       setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
       setStatus(QuoteStatus.COMPLETE);
   };
@@ -454,12 +448,39 @@ function App() {
                      <Calculator className="w-8 h-8 text-yellow-600" />
                   </div>
                   <div>
-                     <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total do Orçamento</p>
+                     <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total</p>
                      <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalValue)}</p>
-                     <div className="flex items-center gap-2 mt-1">
-                        {customerName && <span className="text-sm text-slate-600 font-medium">Cliente: {customerName}</span>}
-                        {lastSavedTime && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">Salvo às {lastSavedTime}</span>}
+                     
+                     <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center bg-slate-100 rounded px-2 py-1">
+                            <span className="text-xs font-bold text-slate-500 mr-2">DESC(%):</span>
+                            <input 
+                                type="number" 
+                                min="0" 
+                                max="100"
+                                value={discountPercent}
+                                onChange={(e) => setDiscountPercent(parseFloat(e.target.value) || 0)}
+                                className="w-12 bg-transparent text-slate-800 font-bold text-sm outline-none text-right"
+                            />
+                        </div>
+                        
+                        <div className="flex items-center bg-slate-100 rounded px-2 py-1">
+                            <select 
+                                value={paymentMethod}
+                                onChange={(e) => setPaymentMethod(e.target.value)}
+                                className="bg-transparent text-slate-700 text-xs font-bold outline-none uppercase cursor-pointer"
+                            >
+                                <option value="À VISTA">À VISTA</option>
+                                <option value="PIX">PIX</option>
+                                <option value="1X CRÉDITO">1X CRÉDITO</option>
+                                <option value="2X CRÉDITO">2X CRÉDITO</option>
+                                <option value="3X CRÉDITO">3X CRÉDITO</option>
+                                <option value="BOLETO">BOLETO</option>
+                            </select>
+                        </div>
                      </div>
+
+                     {lastSavedTime && <div className="text-xs text-green-600 mt-1">Salvo às {lastSavedTime}</div>}
                   </div>
                </div>
 
@@ -584,48 +605,61 @@ function App() {
           </div>
         </div>
 
-        <LearningModal 
-            isOpen={isLearningModalOpen} 
-            onClose={() => setIsLearningModalOpen(false)}
-            matches={learnedMatches}
-            onDelete={handleDeleteLearnedMatch}
-            onRefresh={refreshLearnedMatches}
-        />
+        <Suspense fallback={<ModalLoader />}>
+            {isLearningModalOpen && (
+                <LearningModal 
+                    isOpen={isLearningModalOpen} 
+                    onClose={() => setIsLearningModalOpen(false)}
+                    matches={learnedMatches}
+                    onDelete={handleDeleteLearnedMatch}
+                    onRefresh={refreshLearnedMatches}
+                />
+            )}
 
-        <HistoryModal
-            isOpen={isHistoryModalOpen}
-            onClose={() => setIsHistoryModalOpen(false)}
-            history={quoteHistory}
-            onDelete={handleDeleteHistory}
-            onRestore={handleLoadHistory}
-        />
+            {isHistoryModalOpen && (
+                <HistoryModal
+                    isOpen={isHistoryModalOpen}
+                    onClose={() => setIsHistoryModalOpen(false)}
+                    history={quoteHistory}
+                    onDelete={handleDeleteHistory}
+                    onRestore={handleLoadHistory}
+                />
+            )}
 
-        <SettingsModal 
-            isOpen={isSettingsModalOpen}
-            onClose={() => setIsSettingsModalOpen(false)}
-        />
+            {isSettingsModalOpen && (
+                <SettingsModal 
+                    isOpen={isSettingsModalOpen}
+                    onClose={() => setIsSettingsModalOpen(false)}
+                />
+            )}
 
-        <CatalogManagerModal 
-            isOpen={isCatalogModalOpen}
-            onClose={() => setIsCatalogModalOpen(false)}
-            catalog={catalog}
-            onUpdateCatalog={handleUpdateCatalog}
-            learnedMatches={learnedMatches}
-        />
+            {isCatalogModalOpen && (
+                <CatalogManagerModal 
+                    isOpen={isCatalogModalOpen}
+                    onClose={() => setIsCatalogModalOpen(false)}
+                    catalog={catalog}
+                    onUpdateCatalog={handleUpdateCatalog}
+                    learnedMatches={learnedMatches}
+                />
+            )}
 
-        <ExportModal 
-            isOpen={isExportModalOpen}
-            onClose={() => setIsExportModalOpen(false)}
-            items={items}
-            totalValue={totalValue}
-        />
+            {isExportModalOpen && (
+                <ExportModal 
+                    isOpen={isExportModalOpen}
+                    onClose={() => setIsExportModalOpen(false)}
+                    items={items}
+                    totalValue={totalValue} // Final total already includes discount
+                />
+            )}
 
-        {/* NEW: Dashboard Modal */}
-        <DashboardModal 
-            isOpen={isDashboardModalOpen}
-            onClose={() => setIsDashboardModalOpen(false)}
-            history={quoteHistory}
-        />
+            {isDashboardModalOpen && (
+                <DashboardModal 
+                    isOpen={isDashboardModalOpen}
+                    onClose={() => setIsDashboardModalOpen(false)}
+                    history={quoteHistory}
+                />
+            )}
+        </Suspense>
         
       </main>
     </div>
