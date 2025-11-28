@@ -1,7 +1,3 @@
-<change>
-<file>components/DashboardModal.tsx</file>
-<description>Fix chart visibility issues by enforcing explicit container heights and simplifying layout structure.</description>
-<content><![CDATA[
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -403,5 +399,3 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     </div>
   );
 };
-]]></content>
-</change>
