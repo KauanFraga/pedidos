@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
@@ -24,16 +23,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerWhatsapp, setCustomerWhatsapp] = useState('');
-  const [customerDoc, setCustomerDoc] = useState(''); // CPF/CNPJ
+  const [customerDoc, setCustomerDoc] = useState('');
   const [salesperson, setSalesperson] = useState('KAUAN');
   const [discountPercent, setDiscountPercent] = useState(0);
   const [quoteNumber, setQuoteNumber] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('À VISTA');
-  const [observations, setObservations] = useState(''); // New State
+  const [observations, setObservations] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [storeConfig, setStoreConfig] = useState<StoreConfig | null>(null);
 
-  // Initialize data on open
   useEffect(() => {
     if (isOpen) {
       const config = getStoreConfig();
@@ -48,7 +46,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const discountValue = totalValue * (discountPercent / 100);
   const finalTotal = totalValue - discountValue;
 
-  // Helper to generate PDF promise
   const generatePdfFile = (): Promise<void> => {
     return new Promise((resolve, reject) => {
         const element = document.getElementById('printable-invoice');
@@ -116,18 +113,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
         return;
     }
 
-    // 1. Generate/Download PDF first so user has it ready
     generatePdfFile().then(() => {
-        // 2. Open WhatsApp with the requested message
         const message = `Segue anexo do orçamento solicitado. Quaisquer dúvidas ficamos à disposição.`;
-        
         const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
         
-        // Increment quote number since we essentially "issued" it
         incrementQuoteNumber();
         setQuoteNumber(prev => prev + 1);
 
-        // Alert user to attach file
         setTimeout(() => {
             alert("O PDF foi baixado! Agora, basta anexá-lo na conversa do WhatsApp que foi aberta.");
             window.open(url, '_blank');
@@ -136,18 +128,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   };
 
   const paymentOptions = [
-      "À VISTA",
-      "PIX",
-      "1X CRÉDITO",
-      "2X CRÉDITO",
-      "3X CRÉDITO",
-      "DÉBITO",
-      "BOLETO",
-      "BOLETO 7 DIAS",
-      "BOLETO 15 DIAS",
-      "BOLETO 30 DIAS",
-      "BOLETO 30/45 DIAS",
-      "BOLETO 30/60 DIAS",
+      "À VISTA", "PIX", "1X CRÉDITO", "2X CRÉDITO", "3X CRÉDITO",
+      "DÉBITO", "BOLETO", "BOLETO 7 DIAS", "BOLETO 15 DIAS",
+      "BOLETO 30 DIAS", "BOLETO 30/45 DIAS", "BOLETO 30/60 DIAS",
       "BOLETO 30/60/90"
   ];
 
@@ -156,10 +139,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 overflow-y-auto print:p-0 print:bg-white print:static">
       
-      {/* --- UI CONTAINER (Hidden on Print) --- */}
       <div className="bg-white w-full max-w-6xl rounded-xl shadow-2xl flex flex-col md:flex-row overflow-hidden max-h-[90vh] print:hidden">
         
-        {/* LEFT SIDE: CONTROLS */}
         <div className="w-full md:w-1/3 bg-slate-50 p-6 border-r border-slate-200 overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -276,7 +257,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                 </div>
             </div>
 
-            {/* NEW OBSERVATIONS FIELD */}
             <div className="mt-2">
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Observações</label>
                 <textarea 
@@ -323,23 +303,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
           </p>
         </div>
 
-        {/* RIGHT SIDE: LIVE PREVIEW (Also visible on Print) */}
         <div className="w-full md:w-2/3 bg-slate-200 p-8 overflow-y-auto flex justify-center">
           
-          {/* --- PRINTABLE PAGE --- */}
           <div 
             id="printable-invoice" 
             className="bg-white shadow-xl print:shadow-none w-[210mm] min-h-[297mm] p-[10mm] text-black font-sans text-[12px] leading-tight relative"
-            style={{ color: '#000000' }} // Enforce black text at container level
+            style={{ color: '#000000' }}
           >
             <style>{`
               @media print {
                 @page { size: A4; margin: 0; }
                 body { background-color: white; color: #000 !important; }
                 #printable-invoice { width: 100%; min-height: 100vh; box-shadow: none; margin: 0; padding: 10mm; }
-                /* Hide everything that is NOT the invoice */
                 body > *:not(#printable-invoice) { display: none; }
-                /* Ensure this modal structure allows printing just the child */
                 .fixed { position: static; overflow: visible; background: white; }
                 .md\\:w-1\\/3 { display: none; }
                 .md\\:w-2\\/3 { width: 100%; padding: 0; background: white; overflow: visible; }
@@ -355,12 +331,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
               .invoice-table tr:nth-child(even) { background-color: #f8fafc; }
             `}</style>
 
-            {/* HEADER */}
             <div className="invoice-box mb-4" style={{ borderColor: '#000' }}>
               <div className="flex">
-                {/* Logo / Store Name */}
                 <div className="w-[35%] p-2 border-r border-black flex flex-col items-center justify-center text-center">
-                   {/* Optimized for the specific "Elétrica Padrão" Logo (Wide Format) */}
                    {config.logoUrl ? (
                       <div className="w-full h-[80px] flex items-center justify-center overflow-hidden">
                         <img 
@@ -377,7 +350,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                    )}
                 </div>
 
-                {/* Store Details */}
                 <div className="w-[35%] p-2 text-center flex flex-col justify-center text-[10px] font-bold" style={{ color: '#000' }}>
                     <div className="uppercase" style={{ fontSize: '12px' }}>{config.storeName}</div>
                     <div className="uppercase">{config.addressLine1}</div>
@@ -386,7 +358,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                     <div className="mt-1" style={{ color: '#15803d' }}>WhatsApp: {config.whatsapp}</div>
                 </div>
 
-                {/* Quote Details */}
                 <div className="w-[30%] border-l border-black p-2 flex flex-col justify-between">
                     <div className="flex justify-between font-bold border-b border-black pb-1" style={{ color: '#000' }}>
                         <span>ORÇAMENTO:</span>
@@ -402,7 +373,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
               </div>
             </div>
 
-            {/* CUSTOMER INFO */}
             <div className="invoice-box mb-4 text-[11px]" style={{ borderColor: '#000' }}>
               <div className="flex border-b border-black">
                 <div className="w-2/3 p-1 border-r border-black" style={{ color: '#000' }}>
@@ -422,7 +392,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
               </div>
             </div>
 
-            {/* ITEMS TABLE */}
             <table className="w-full invoice-table mb-4 border-collapse">
               <thead>
                 <tr>
@@ -440,7 +409,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                    const isEven = idx % 2 === 0;
 
                    return (
-                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}> {/* Zebrado (Slate-200 / White) */}
+                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}>
                        <td className="text-center font-bold" style={{ color: '#000' }}>{item.quantity}</td>
                        <td className="uppercase px-2" style={{ color: '#000' }}>{desc}</td>
                        <td className="text-right" style={{ color: '#000' }}>{item.catalogItem ? formatCurrency(unit) : '-'}</td>
@@ -448,7 +417,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                      </tr>
                    );
                 })}
-                {/* Empty rows to fill space if needed */}
                 {items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
                   <tr key={`empty-${i}`} style={{ height: '22px' }}>
                     <td style={{ border: '1px solid #000' }}></td>
@@ -460,7 +428,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
               </tbody>
             </table>
             
-            {/* TOTALS */}
             <div className="flex justify-end mb-4">
                <div className="w-1/2 border border-black">
                   <div className="flex justify-between p-2 border-b border-black bg-slate-50">
@@ -468,7 +435,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                      <span className="font-mono" style={{ color: '#000' }}>{formatCurrency(totalValue)}</span>
                   </div>
                   
-                  {/* Payment Condition Row */}
                   <div className="flex justify-between p-2 border-b border-black">
                      <span className="font-bold text-xs" style={{ color: '#000' }}>CONDIÇÃO:</span>
                      <span className="font-bold text-xs uppercase" style={{ color: '#000' }}>{paymentMethod}</span>
@@ -488,7 +454,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                </div>
             </div>
 
-            {/* OBSERVATIONS SECTION IN PDF */}
             {observations && (
                 <div style={{ 
                     border: '1px solid #000', 
@@ -507,7 +472,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                 </div>
             )}
 
-            {/* DISCLAIMERS / FOOTER */}
             <div className="border-t-2 border-black pt-2 text-center mt-auto" style={{ borderColor: '#000' }}>
                <p className="font-bold text-[10px] mb-2" style={{ color: '#000' }}>
                  PREZADO CLIENTE, AO RECEBER SEU MATERIAL FAVOR CONFERIR, POIS APÓS A ENTREGA NÃO NOS RESPONSABILIZAMOS POR DIVERGÊNCIA.
@@ -529,4 +493,3 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
     </div>
   );
 };
-
