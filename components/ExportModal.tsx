@@ -1,6 +1,6 @@
 <change>
 <file>components/ExportModal.tsx</file>
-<description>Refine ExportModal to match screenshot, ensuring observations field is correctly positioned and PDF generation logic is robust.</description>
+<description>Clean rewrite of ExportModal.tsx to fix build syntax error caused by XML artifacts.</description>
 <content><![CDATA[
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
@@ -279,7 +279,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                 </div>
             </div>
 
-            {/* OBSERVATIONS FIELD */}
+            {/* NEW OBSERVATIONS FIELD */}
             <div className="mt-2">
                 <label className="text-xs font-bold text-slate-500 uppercase block mb-1">Observações</label>
                 <textarea 
@@ -363,6 +363,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
               <div className="flex">
                 {/* Logo / Store Name */}
                 <div className="w-[35%] p-2 border-r border-black flex flex-col items-center justify-center text-center">
+                   {/* Optimized for the specific "Elétrica Padrão" Logo (Wide Format) */}
                    {config.logoUrl ? (
                       <div className="w-full h-[80px] flex items-center justify-center overflow-hidden">
                         <img 
@@ -442,7 +443,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                    const isEven = idx % 2 === 0;
 
                    return (
-                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}>
+                     <tr key={idx} style={{ backgroundColor: isEven ? '#e2e8f0' : '#ffffff' }}> {/* Zebrado (Slate-200 / White) */}
                        <td className="text-center font-bold" style={{ color: '#000' }}>{item.quantity}</td>
                        <td className="uppercase px-2" style={{ color: '#000' }}>{desc}</td>
                        <td className="text-right" style={{ color: '#000' }}>{item.catalogItem ? formatCurrency(unit) : '-'}</td>
@@ -450,6 +451,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                      </tr>
                    );
                 })}
+                {/* Empty rows to fill space if needed */}
                 {items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
                   <tr key={`empty-${i}`} style={{ height: '22px' }}>
                     <td style={{ border: '1px solid #000' }}></td>
