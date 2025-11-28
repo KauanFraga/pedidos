@@ -1,7 +1,4 @@
-<change>
-<file>components/ExportModal.tsx</file>
-<description>Clean rewrite of ExportModal.tsx to fix build syntax error caused by XML artifacts.</description>
-<content><![CDATA[
+
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
@@ -532,5 +529,3 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
     </div>
   );
 };
-]]></content>
-</change>
