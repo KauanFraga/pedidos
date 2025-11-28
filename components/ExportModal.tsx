@@ -1,7 +1,4 @@
-<change>
-<file>components/ExportModal.tsx</file>
-<description>Force clean rewrite of ExportModal.tsx to eliminate invalid XML tags and fix build error.</description>
-<content><![CDATA[
+
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
