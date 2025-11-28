@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
 import { formatCurrency } from '../utils/parser';
@@ -57,23 +58,13 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   // --- Metrics Calculation ---
   const metrics = useMemo(() => {
-    if (filteredHistory.length === 0) {
-        return {
-            totalQuotes: 0,
-            approved: { count: 0, value: 0 },
-            pending: { count: 0, value: 0 },
-            lost: { count: 0, value: 0 },
-            conversionRate: 0
-        };
-    }
-
     const approved = filteredHistory.filter(q => q.status === 'APROVADO');
     const pending = filteredHistory.filter(q => q.status === 'PENDENTE');
     const lost = filteredHistory.filter(q => q.status === 'PERDIDO');
 
-    const totalRevenue = approved.reduce((acc, q) => acc + (q.totalValue || 0), 0);
-    const potentialRevenue = pending.reduce((acc, q) => acc + (q.totalValue || 0), 0);
-    const lostRevenue = lost.reduce((acc, q) => acc + (q.totalValue || 0), 0);
+    const totalRevenue = approved.reduce((acc, q) => acc + q.totalValue, 0);
+    const potentialRevenue = pending.reduce((acc, q) => acc + q.totalValue, 0);
+    const lostRevenue = lost.reduce((acc, q) => acc + q.totalValue, 0);
 
     const closedDeals = approved.length + lost.length;
     const conversionRate = closedDeals > 0 
@@ -93,9 +84,8 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
   const dailyData = useMemo(() => {
     const data: Record<string, { date: string, count: number }> = {};
     
-    // Always show at least last 7 days if empty for visual structure
-    if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH' || filteredHistory.length === 0) {
-        const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : 7;
+    if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH') {
+        const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : new Date().getDate();
         for(let i = daysToLookBack - 1; i >= 0; i--) {
              const d = new Date();
              d.setDate(d.getDate() - i);
@@ -105,15 +95,11 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
     }
 
     filteredHistory.forEach(q => {
-      try {
-          const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
-          if (!data[dateKey]) {
-              data[dateKey] = { date: dateKey, count: 0 };
-          }
-          data[dateKey].count += 1;
-      } catch (e) {
-          // Ignore invalid dates
+      const dateKey = new Date(q.createdAt).toLocaleDateString('pt-BR').substring(0, 5);
+      if (!data[dateKey]) {
+          data[dateKey] = { date: dateKey, count: 0 };
       }
+      data[dateKey].count += 1;
     });
 
     return Object.values(data);
@@ -129,11 +115,9 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
 
   const topProducts = useMemo(() => {
     const productMap: Record<string, { name: string, qty: number, total: number }> = {};
-    
-    // Consider approved and pending for better visibility if little data
-    const relevantQuotes = filteredHistory.filter(q => q.status === 'APROVADO' || q.status === 'PENDENTE');
+    const approvedQuotes = filteredHistory.filter(q => q.status === 'APROVADO');
 
-    relevantQuotes.forEach(quote => {
+    approvedQuotes.forEach(quote => {
       if (Array.isArray(quote.items)) {
         quote.items.forEach(item => {
             if (!item || !item.catalogItem) return;
@@ -165,7 +149,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
       <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white shrink-0">
+        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white">
           <div className="flex items-center gap-3 text-slate-800">
              <div className="bg-blue-100 p-2 rounded-lg">
                 <BarChart3 className="w-6 h-6 text-blue-600" />
@@ -196,7 +180,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
         </div>
 
         {/* Content Scrollable Area */}
-        <div className="overflow-y-auto flex-1 p-6 space-y-6 bg-slate-50">
+        <div className="overflow-y-auto flex-1 p-6 space-y-6">
            
            {/* 1. KPI Cards */}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -258,14 +242,13 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
            </div>
 
            {/* 2. Main Chart Area */}
-           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+           <div className="bg-white p-6 rounded-xl shadow-sm">
              <div className="flex items-center justify-between mb-4">
                  <h3 className="font-bold text-slate-700 flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-blue-500" /> Orçamentos por Dia
                  </h3>
              </div>
-             {/* Explicit Height Container for Recharts */}
-             <div style={{ width: '100%', height: 300 }}>
+             <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                    <BarChart data={dailyData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -302,7 +285,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
               {/* Top Products */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
+              <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
                  <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-green-500" /> Produtos Mais Vendidos (Top 5)
                  </h3>
@@ -334,48 +317,46 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
                     </div>
                  ) : (
                     <div className="flex-1 flex items-center justify-center text-slate-400 py-12 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                        <p>Nenhuma venda ou orçamento pendente no período</p>
+                        <p>Nenhuma venda aprovada no período</p>
                     </div>
                  )}
               </div>
 
               {/* Status Chart */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
+              <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <PieIcon className="w-5 h-5 text-blue-500" /> Desempenho por Status
                  </h3>
-                 <div className="flex-1 flex items-center justify-center" style={{ minHeight: '300px' }}>
+                 <div className="flex-1 min-h-[300px] flex items-center justify-center">
                     {statusData.length > 0 ? (
-                        <div style={{ width: '100%', height: 300 }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={statusData}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={70}
-                                        outerRadius={100}
-                                        paddingAngle={2}
-                                        dataKey="value"
-                                        stroke="none"
-                                    >
-                                        {statusData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip 
-                                    formatter={(value: number) => [`${value} orçamentos`, 'Quantidade']}
-                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                    />
-                                    <Legend 
-                                    verticalAlign="bottom" 
-                                    height={36} 
-                                    iconType="circle"
-                                    formatter={(value, entry: any) => <span className="text-slate-600 font-medium ml-1">{value}</span>}
-                                    />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
+                        <ResponsiveContainer width="100%" height={300}>
+                            <PieChart>
+                                <Pie
+                                    data={statusData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={70}
+                                    outerRadius={100}
+                                    paddingAngle={2}
+                                    dataKey="value"
+                                    stroke="none"
+                                >
+                                    {statusData.map((entry, index) => (
+                                      <Cell key={`cell-${index}`} fill={entry.color} />
+                                    ))}
+                                </Pie>
+                                <Tooltip 
+                                  formatter={(value: number) => [`${value} orçamentos`, 'Quantidade']}
+                                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                />
+                                <Legend 
+                                  verticalAlign="bottom" 
+                                  height={36} 
+                                  iconType="circle"
+                                  formatter={(value, entry: any) => <span className="text-slate-600 font-medium ml-1">{value}</span>}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
                     ) : (
                         <div className="flex flex-col items-center justify-center text-slate-400 h-full w-full bg-slate-50 rounded-lg border border-dashed border-slate-200">
                             <AlertCircle className="w-8 h-8 mb-2 opacity-20" />
@@ -390,7 +371,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
         </div>
         
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 bg-white flex justify-end shrink-0">
+        <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
             <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium transition-colors">
                 Fechar Dashboard
             </button>
