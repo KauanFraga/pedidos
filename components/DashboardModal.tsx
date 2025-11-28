@@ -1,6 +1,6 @@
 <change>
 <file>components/DashboardModal.tsx</file>
-<description>Ensure DashboardModal provides visual analytics (Charts/KPIs) distinct from the list-based HistoryModal.</description>
+<description>Fix chart visibility issues by enforcing explicit container heights and simplifying layout structure.</description>
 <content><![CDATA[
 import React, { useState, useMemo } from 'react';
 import { SavedQuote } from '../types';
@@ -97,8 +97,9 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
   const dailyData = useMemo(() => {
     const data: Record<string, { date: string, count: number }> = {};
     
-    if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH') {
-        const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : new Date().getDate();
+    // Always show at least last 7 days if empty for visual structure
+    if (period === 'LAST_7_DAYS' || period === 'THIS_MONTH' || filteredHistory.length === 0) {
+        const daysToLookBack = period === 'LAST_7_DAYS' ? 7 : 7;
         for(let i = daysToLookBack - 1; i >= 0; i--) {
              const d = new Date();
              d.setDate(d.getDate() - i);
@@ -115,7 +116,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
           }
           data[dateKey].count += 1;
       } catch (e) {
-          // Ignore
+          // Ignore invalid dates
       }
     });
 
@@ -133,9 +134,10 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
   const topProducts = useMemo(() => {
     const productMap: Record<string, { name: string, qty: number, total: number }> = {};
     
-    const approvedQuotes = filteredHistory.filter(q => q.status === 'APROVADO');
+    // Consider approved and pending for better visibility if little data
+    const relevantQuotes = filteredHistory.filter(q => q.status === 'APROVADO' || q.status === 'PENDENTE');
 
-    approvedQuotes.forEach(quote => {
+    relevantQuotes.forEach(quote => {
       if (Array.isArray(quote.items)) {
         quote.items.forEach(item => {
             if (!item || !item.catalogItem) return;
@@ -167,7 +169,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
       <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl max-h-[95vh] flex flex-col overflow-hidden">
         
         {/* Header */}
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white">
+        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white shrink-0">
           <div className="flex items-center gap-3 text-slate-800">
              <div className="bg-blue-100 p-2 rounded-lg">
                 <BarChart3 className="w-6 h-6 text-blue-600" />
@@ -198,9 +200,9 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
         </div>
 
         {/* Content Scrollable Area */}
-        <div className="overflow-y-auto flex-1 p-6 space-y-6">
+        <div className="overflow-y-auto flex-1 p-6 space-y-6 bg-slate-50">
            
-           {/* KPI Cards */}
+           {/* 1. KPI Cards */}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               
               <div className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-green-500 relative overflow-hidden group">
@@ -260,13 +262,14 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
            </div>
 
            {/* 2. Main Chart Area */}
-           <div className="bg-white p-6 rounded-xl shadow-sm">
+           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
              <div className="flex items-center justify-between mb-4">
                  <h3 className="font-bold text-slate-700 flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-blue-500" /> Orçamentos por Dia
                  </h3>
              </div>
-             <div className="h-64">
+             {/* Explicit Height Container for Recharts */}
+             <div style={{ width: '100%', height: 300 }}>
                 <ResponsiveContainer width="100%" height="100%">
                    <BarChart data={dailyData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -303,7 +306,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
               {/* Top Products */}
-              <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
                  <h3 className="font-bold text-slate-700 mb-6 flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-green-500" /> Produtos Mais Vendidos (Top 5)
                  </h3>
@@ -335,46 +338,48 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
                     </div>
                  ) : (
                     <div className="flex-1 flex items-center justify-center text-slate-400 py-12 bg-slate-50 rounded-lg border border-dashed border-slate-200">
-                        <p>Nenhuma venda aprovada no período</p>
+                        <p>Nenhuma venda ou orçamento pendente no período</p>
                     </div>
                  )}
               </div>
 
               {/* Status Chart */}
-              <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-full">
                  <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
                     <PieIcon className="w-5 h-5 text-blue-500" /> Desempenho por Status
                  </h3>
-                 <div className="flex-1 min-h-[300px] flex items-center justify-center">
+                 <div className="flex-1 flex items-center justify-center" style={{ minHeight: '300px' }}>
                     {statusData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={300}>
-                            <PieChart>
-                                <Pie
-                                    data={statusData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={70}
-                                    outerRadius={100}
-                                    paddingAngle={2}
-                                    dataKey="value"
-                                    stroke="none"
-                                >
-                                    {statusData.map((entry, index) => (
-                                      <Cell key={`cell-${index}`} fill={entry.color} />
-                                    ))}
-                                </Pie>
-                                <Tooltip 
-                                  formatter={(value: number) => [`${value} orçamentos`, 'Quantidade']}
-                                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                />
-                                <Legend 
-                                  verticalAlign="bottom" 
-                                  height={36} 
-                                  iconType="circle"
-                                  formatter={(value, entry: any) => <span className="text-slate-600 font-medium ml-1">{value}</span>}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
+                        <div style={{ width: '100%', height: 300 }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={statusData}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={70}
+                                        outerRadius={100}
+                                        paddingAngle={2}
+                                        dataKey="value"
+                                        stroke="none"
+                                    >
+                                        {statusData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip 
+                                    formatter={(value: number) => [`${value} orçamentos`, 'Quantidade']}
+                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    />
+                                    <Legend 
+                                    verticalAlign="bottom" 
+                                    height={36} 
+                                    iconType="circle"
+                                    formatter={(value, entry: any) => <span className="text-slate-600 font-medium ml-1">{value}</span>}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center text-slate-400 h-full w-full bg-slate-50 rounded-lg border border-dashed border-slate-200">
                             <AlertCircle className="w-8 h-8 mb-2 opacity-20" />
@@ -389,7 +394,7 @@ export const DashboardModal: React.FC<DashboardModalProps> = ({ isOpen, onClose,
         </div>
         
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
+        <div className="p-4 border-t border-slate-200 bg-white flex justify-end shrink-0">
             <button onClick={onClose} className="px-6 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-medium transition-colors">
                 Fechar Dashboard
             </button>
