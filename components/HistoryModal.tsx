@@ -1,7 +1,3 @@
-<change>
-<file>components/HistoryModal.tsx</file>
-<description>Refine HistoryModal UI to match screenshot: compact list view, updated stats cards, and cleaner layout.</description>
-<content><![CDATA[
 import React, { useState, useMemo, useEffect } from 'react';
 import { SavedQuote, HistoryStatus } from '../types';
 import { updateQuoteStatus } from '../services/historyService';
@@ -353,5 +349,3 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
     </div>
   );
 };
-]]></content>
-</change>
