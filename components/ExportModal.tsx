@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { QuoteItem, StoreConfig, PdfCustomerData } from '../types';
 import { incrementQuoteNumber, getStoreConfig } from '../services/settingsService';
@@ -47,53 +48,44 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
   const discountValue = totalValue * (discountPercent / 100);
   const finalTotal = totalValue - discountValue;
 
-  // Helper to generate PDF promise
-  const generatePdfFile = (): Promise<void> => {
-    return new Promise((resolve, reject) => {
-        const element = document.getElementById('printable-invoice');
-        if (!element) {
-            alert("Erro ao encontrar o elemento do orçamento.");
-            reject();
-            return;
-        }
-
-        setIsGenerating(true);
-
-        const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-        const safeName = customerName.replace(/[^a-zA-Z0-9]/g, '_') || 'cliente';
-        const filename = `orcamento_${quoteNumber}_${safeName}_${dateStr}.pdf`;
-
-        const opt = {
-            margin: 0, 
-            filename: filename,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        if (window.html2pdf) {
-            window.html2pdf().set(opt).from(element).save().then(() => {
-                resolve();
-            }).catch((err: any) => {
-                console.error("Erro ao gerar PDF", err);
-                alert("Erro ao gerar PDF.");
-                reject();
-            }).finally(() => {
-                setIsGenerating(false);
-            });
-        } else {
-            window.print();
-            resolve();
-            setIsGenerating(false);
-        }
-    });
-  };
-
   const handlePrint = () => {
-      generatePdfFile().then(() => {
-          incrementQuoteNumber();
-          setQuoteNumber(prev => prev + 1);
-      });
+    const element = document.getElementById('printable-invoice');
+    if (!element) {
+        alert("Erro ao encontrar o elemento do orçamento.");
+        return;
+    }
+
+    setIsGenerating(true);
+
+    const dateStr = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    const safeName = customerName.replace(/[^a-zA-Z0-9]/g, '_') || 'cliente';
+    const filename = `orcamento_${quoteNumber}_${safeName}_${dateStr}.pdf`;
+
+    const opt = {
+        margin: 0, 
+        filename: filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    if (window.html2pdf) {
+        window.html2pdf().set(opt).from(element).save().then(() => {
+            incrementQuoteNumber();
+            setQuoteNumber(prev => prev + 1);
+            setIsGenerating(false);
+        }).catch((err: any) => {
+            console.error("Erro ao gerar PDF", err);
+            setIsGenerating(false);
+            alert("Erro ao gerar PDF. Tente novamente.");
+        });
+    } else {
+        // Fallback if library didn't load
+        window.print();
+        incrementQuoteNumber();
+        setQuoteNumber(prev => prev + 1);
+        setIsGenerating(false);
+    }
   };
 
   const formatPhone = (value: string) => {
@@ -115,23 +107,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
         return;
     }
 
-    // 1. Generate/Download PDF first so user has it ready
-    generatePdfFile().then(() => {
-        // 2. Open WhatsApp with the requested message
-        const message = `Segue anexo do orçamento solicitado. Quaisquer dúvidas ficamos à disposição.`;
-        
-        const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
-        
-        // Increment quote number since we essentially "issued" it
-        incrementQuoteNumber();
-        setQuoteNumber(prev => prev + 1);
+    const date = new Date().toLocaleDateString('pt-BR');
+    const config = storeConfig || getStoreConfig();
+    
+    const message = `Olá ${customerName || 'Cliente'}! Segue o orçamento #${quoteNumber} da Elétrica Padrão.
 
-        // Alert user to attach file
-        setTimeout(() => {
-            alert("O PDF foi baixado! Agora, basta anexá-lo na conversa do WhatsApp que foi aberta.");
-            window.open(url, '_blank');
-        }, 1000);
-    });
+📋 Orçamento: ${quoteNumber}
+📅 Data: ${date}
+💰 Valor: ${formatCurrency(totalValue)}
+💵 Total Final: ${formatCurrency(finalTotal)} (${paymentMethod})
+
+Qualquer dúvida, estou à disposição!
+
+Elétrica Padrão
+📞 ${config.phones}
+📱 ${config.whatsapp}`;
+
+    const url = `https://wa.me/55${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const paymentOptions = [
@@ -487,7 +480,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                </div>
             </div>
 
-            {/* OBSERVATIONS SECTION IN PDF */}
+            {/* OBSERVATIONS SECTION */}
             {observations && (
                 <div style={{ 
                     border: '1px solid #000', 
@@ -499,7 +492,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, items
                     color: '#000',
                     position: 'relative'
                 }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase' }}>OBSERVAÇÕES:</div>
+                    <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase' }}>Observações:</div>
                     <div style={{ whiteSpace: 'pre-wrap' }}>
                         {observations}
                     </div>

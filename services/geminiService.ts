@@ -1,7 +1,4 @@
-<change>
-<file>services/geminiService.ts</file>
-<description>Enhance AI prompt to strictly enforce splitting grouped items (colors/variants) into separate line items and improve quantity distribution logic.</description>
-<content><![CDATA[
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { CatalogItem, ProcessedResult } from "../types";
 import { getConversionPromptInstructions } from "../utils/conversionRules";
@@ -14,9 +11,9 @@ export const processOrderWithGemini = async (
   orderText: string
 ): Promise<ProcessedResult> => {
   
-  // Optimization: Limit context size if necessary, but keep description clear
+  // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
   const catalogString = catalog
-    .map((item, index) => `ID:${index} | ${item.description} | R$ ${item.price}`)
+    .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
     .join('\n');
 
   const model = "gemini-2.5-flash";
@@ -24,79 +21,64 @@ export const processOrderWithGemini = async (
   const conversionInstructions = getConversionPromptInstructions();
 
   const systemInstruction = `
-    You are an expert technical sales assistant at "KF Elétrica". 
-    Your task is to map a customer's unstructured order list to our Product Catalog.
-
-    ### 1. CRITICAL RULE: ITEM EXPANSION & COLOR SPLITTING
-    **YOU MUST SPLIT GROUPED REQUESTS INTO SEPARATE LINES.**
-    If a user asks for a total quantity but lists multiple colors or types, create a separate line item for EACH color/type with the appropriate partial quantity.
-
-    **Examples:**
-    *   **Input:** "3 rolos fio 4mm (vermelho, azul, preto)"
-        *   **WRONG:** 1 line "300m Fio 4mm"
-        *   **CORRECT:** 
-            1. "100m Fio 4mm Vermelho"
-            2. "100m Fio 4mm Azul"
-            3. "100m Fio 4mm Preto"
+    You are an expert sales assistant at an electrical supply store "KF Elétrica".
+    Your task is to map a customer's unstructured order list to our product catalog.
     
-    *   **Input:** "4 rolos cabo 2.5 sendo 2 pretos, 1 azul e 1 verde"
-        *   **CORRECT:**
-            1. "200m Cabo 2.5 Preto"
-            2. "100m Cabo 2.5 Azul"
-            3. "100m Cabo 2.5 Verde"
-
-    *   **Input:** "10 tomadas e 5 interruptores"
-        *   **CORRECT:**
-            1. "10 Tomadas"
-            2. "5 Interruptores"
-
-    ### 2. ELECTRICAL TERMINOLOGY & CONVERSION RULES (STRICT)
+    CRITICAL BRAND & MATERIAL KNOWLEDGE:
+    - Brands often abbreviated: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria, "EBONY" = Margirius Preto Brilhante.
+    - Colors for Conduletes/Eletrodutos/Luvas/Curvas: "CZ" or "CINZA" (Grey), "BR" or "BRANCO" (White), "PT" or "PRETO" (Black), "AL" or "ALUMINIO".
+    - Synonyms: "TOMADA" might match "MÓDULO" or "MOD" in the catalog if a complete set isn't found.
+    - **TERMINAL TUBULAR** is the same as **ILHÓS**. Match "Terminal Tubular" request to "ILHÓS" products.
     
-    **DISTINCTION: CONDUITE vs ELETRODUTO**
-    *   **"CONDUITE"** or **"CORRUGADO"**: Refers to **Flexible/Corrugado** hose (usually yellow/orange/reinforced).
-        *   *Action:* Search for "ELETRODUTO FLEXIVEL", "CORRUGADO", "MANGUEIRA".
-        *   *Conversion:* Do **NOT** convert to bars. Keep as meters (or match to rolls if catalog has "Rolo").
+    SMART KIT EXPANSION ("CONJUNTO"):
+    - If customer asks for "Conjunto Condulete" or "Condulete Completo" (e.g., with switch/socket):
+      1. First, look for a pre-assembled kit product in the catalog.
+      2. If NOT found, you typically need to match individual parts: 
+         - The Condulete Box itself.
+         - The appropriate Plate (Tampa/Placa) e.g., "Tampa 1 posto".
+         - The Module (Módulo) e.g., "Módulo Tomada 20A" or "Módulo Interruptor".
+      3. HOWEVER, for this specific task, try to map to the MAIN component (Condulete or Kit) available in the catalog. If the catalog has "CONJUNTO MONTADO", use it. If not, match the closest single item (Condulete) but add a note/warning if possible (or let the user add the rest). 
+      *Ideally, if the catalog lists "CONJUNTO", use it.*
+
+    ADVANCED UNIT CONVERSION (CONDUITS/ELETRODUTOS):
+    - **ELETRODUTOS / CANO / TUBO** are typically sold in **3-METER BARS** (Barras de 3 metros).
+    - If the customer requests METERS (e.g., "7 metros eletroduto"), you must calculate the number of BARS required.
+    - Logic: Quantity = CEIL(Requested Meters / 3).
+    - Example: "7 metros eletroduto" -> 7 / 3 = 2.33 -> Needs **3 BARS** (Quantity: 3).
+    - Example: "10 metros tubo" -> 10 / 3 = 3.33 -> Needs **4 BARS** (Quantity: 4).
+    - **IMPORTANT:** Only apply this rule if the matching catalog item is sold by the BAR (usually implied for rigid conduits/eletrodutos, NOT flexible hoses/corrugados which are sold by meter/rolo). Check if catalog item description contains "BARRA" or implies rigid conduit. If it's "ELETRODUTO FLEXÍVEL" or "CORRUGADO", keep in meters (or convert rolo).
+
+    DEFAULT ATTRIBUTES:
+    - CABLES/WIRES ("cabo", "fio", "flex"): If the customer DOES NOT specify a color, YOU MUST MATCH TO BLACK ("PT", "PRETO").
+      Example: "100m cabo 2.5mm" -> Match to "CABO FLEX 2,5MM PT" or "PRETO".
     
-    *   **"ELETRODUTO"**, **"TUBO"**, or **"CANO"**: Refers to **Rigid** bars (PVC or Metal).
-        *   *Action:* Search for "ELETRODUTO RIGIDO", "ELETRODUTO PVC", "TUBO".
-        *   *Conversion:* These are almost always sold in **3-METER BARS**.
-        *   *Rule:* If user asks for "Meters" (e.g. "15m eletroduto"), calculate: **Quantity = CEIL(Meters / 3)**.
-        *   *Example:* "15m eletroduto" -> Match "Eletroduto Rígido" -> Quantity 5 (Bars).
-
-    **OTHER SYNONYMS:**
-    *   **"SPLIT BOLT"** -> Look for **"CONECTOR"** or **"CONECTOR PARAFUSO FENDIDO"**.
-    *   **"TERMINAL TUBULAR"** -> Look for **"ILHÓS"**.
-    *   **"HASTE"** -> Look for **"HASTE DE ATERRAMENTO"**.
-    *   **"MODULO"** -> Often referred to simply as "TOMADA" or "INTERRUPTOR" if sold separately.
-    *   **"V" or "VM"** = Vermelho | **"AZ"** = Azul | **"PT"** or "PR" = Preto | **"VD"** = Verde | **"AM"** = Amarelo.
-
-    ### 3. CATALOG MATCHING RULES
-    *   **Fuzzy Match:** If the user types "cabo 2,5", match "CABO FLEX 2,5MM".
-    *   **Inference:** If the line says "6 conector split bolt 25mm", look for "CONECTOR" and "25MM". Don't ignore it just because it says "split bolt".
-    *   **Quantity Handling:**
-        - "1 rolo" = 100m (usually). If catalog item is per meter, quantity = 100.
-        - "11 rolos" = 1100m.
-        - ALWAYS respect the specific colors requested.
-
-    ### 4. OUTPUT FORMAT
-    Return a JSON object with a property "mappedItems".
-    Each item must have:
-    - "originalRequest": The specific part of the text used (e.g. "1 rolo fio 4mm vermelho").
-    - "quantity": The numeric quantity (e.g. 100 for 100m, 1 for 1 unit).
-    - "catalogIndex": The ID (integer) of the matching item from the CATALOG provided above. Return -1 if NO match is found.
-    - "conversionLog": A short string explaining any conversion (e.g. "Split 3 colors", "15m -> 5 barras (3m)").
+    CONTEXT & PATTERN INFERENCE (VERY IMPORTANT):
+    - The customer list generally follows a strict theme based on the first few items.
+    - BRAND INFERENCE: If the first item of a category (e.g., switches/sockets) specifies a brand (e.g., "MG" or "LIZ"), assume ALL subsequent ambiguous items in that category are the SAME BRAND. 
+      * Example: If Item 1 is "Placa 4x2 MG", and Item 2 is just "Interruptor Simples", you MUST match Item 2 to a "MG" product.
+    - MATERIAL/COLOR INFERENCE: If the first item of a conduit infrastructure (e.g., "eletroduto") specifies a color/material (e.g., "PRETO", "CINZA", "ALUMINIO"), assume ALL subsequent fittings (curvas, luvas, buchas) are the SAME COLOR/MATERIAL.
+      * Example: If Item 1 is "Eletroduto 3/4 Preto", and Item 2 is "Curva 90", you MUST match Item 2 to a "Preto" product.
 
     ${conversionInstructions}
 
-    **IMPORTANT:** DO NOT SKIP ANY ITEMS. If the input implies 5 different products/colors, return 5 separate items in the array.
+    Rules:
+    1. Analyze the "CUSTOMER REQUEST" line by line. If a line contains delimiters like "-" or ";" with multiple items, split them.
+    2. For EACH item in the request, return an object in the output array in the EXACT SAME ORDER.
+    3. Identify the Quantity and the Product. 
+       - Extract number strictly. If "100m", quantity is 100. 
+       - If "- 1 item", quantity is 1. 
+       - If no quantity is found, DEFAULT TO 1.
+    4. Find the best matching product in the provided Catalog using fuzzy matching logic AND the Context/Pattern Inference rules above.
+    5. If a product is found, set "catalogIndex" to the Index provided in the catalog text.
+    6. If a product is NOT found in the catalog with reasonable confidence, set "catalogIndex" to -1.
   `;
 
   const prompt = `
-    Product Catalog:
+    CATALOG:
     ${catalogString}
 
-    Customer Request Raw Text:
-    "${orderText}"
+    CUSTOMER REQUEST:
+    ${orderText}
   `;
 
   try {
@@ -116,8 +98,8 @@ export const processOrderWithGemini = async (
                 properties: {
                   originalRequest: { type: Type.STRING },
                   quantity: { type: Type.NUMBER },
-                  catalogIndex: { type: Type.INTEGER },
-                  conversionLog: { type: Type.STRING, nullable: true }
+                  catalogIndex: { type: Type.INTEGER, description: "Index from catalog if found, -1 if not found" },
+                  conversionLog: { type: Type.STRING, description: "Explanation if unit conversion was applied (e.g., '7m -> 3 barras (3m)'), otherwise null" }
                 },
                 required: ["originalRequest", "quantity", "catalogIndex"]
               }
@@ -134,13 +116,9 @@ export const processOrderWithGemini = async (
     
     // Map back to internal types
     const items = (data.mappedItems || []).map((item: any) => {
-      // Validate Index
-      const index = item.catalogIndex;
-      let catalogItem = null;
-      
-      if (index !== -1 && typeof index === 'number' && catalog[index]) {
-          catalogItem = catalog[index];
-      }
+      // Check if index is valid and not -1
+      const isFound = item.catalogIndex !== -1 && item.catalogIndex !== null && catalog[item.catalogIndex];
+      const catalogItem = isFound ? catalog[item.catalogIndex] : null;
 
       // Strict Quantity Sanitization
       let parsedQty = parseFloat(item.quantity);
@@ -151,7 +129,7 @@ export const processOrderWithGemini = async (
       return {
         id: crypto.randomUUID(),
         quantity: parsedQty,
-        originalRequest: item.originalRequest || "Item",
+        originalRequest: item.originalRequest,
         catalogItem: catalogItem,
         conversionLog: item.conversionLog || undefined
       };
@@ -166,5 +144,3 @@ export const processOrderWithGemini = async (
     throw error;
   }
 };
-]]></content>
-</change>
