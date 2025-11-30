@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 
 // ============================================================================
-// TYPES (copiados de types.ts)
+// TYPES
 // ============================================================================
 interface CatalogItem {
   id: string;
@@ -22,7 +22,7 @@ interface QuoteItem {
 }
 
 // ============================================================================
-// LEARNING SERVICE (copiado de learningService.ts)
+// LEARNING SERVICE
 // ============================================================================
 const STORAGE_KEY = 'kf_learned_matches';
 
@@ -55,96 +55,161 @@ const findLearnedMatch = (text: string): string | null => {
 };
 
 // ============================================================================
-// PARSER FUNCTIONS
+// PARSER FUNCTIONS COM INTELIGÊNCIA PARA CABOS
 // ============================================================================
+
+// Mapeia sinônimos
+const normalizeItemType = (text: string): string => {
+  const lower = text.toLowerCase();
+  if (lower.includes('fio') || lower.includes('cabo') || lower.includes('rolo')) {
+    return text.replace(/\b(fio|cabo|rolo)s?\b/gi, 'cabo');
+  }
+  return text;
+};
+
+// Extrai cores de uma string (AZ, VM, PT, BR, etc)
+const extractColors = (text: string): string[] => {
+  const colorPattern = /\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)\b/gi;
+  const matches = text.match(colorPattern);
+  if (!matches) return [];
+  
+  // Remove duplicatas e retorna
+  return [...new Set(matches.map(c => c.toUpperCase()))];
+};
+
+// Divide linha com múltiplas cores em múltiplos itens
+const splitMultipleColors = (line: string, baseQty: number): { qty: number; text: string; }[] => {
+  const colors = extractColors(line);
+  
+  // Se tem separador "/" ou "e" entre cores, divide
+  if (colors.length >= 2 && (line.includes('/') || /\be\b/i.test(line))) {
+    return colors.map(color => ({
+      qty: baseQty / colors.length,
+      text: line.replace(/\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)([/,\se]+)(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)/gi, color)
+    }));
+  }
+  
+  return [{ qty: baseQty, text: line }];
+};
+
+// Converte ROLO em metros
+const convertRoloToMeters = (qty: number, text: string): { qty: number; log: string } => {
+  const lower = text.toLowerCase();
+  if (lower.includes('rolo')) {
+    return {
+      qty: qty * 100, // 1 rolo = 100 metros
+      log: `${qty} rolo(s) → ${qty * 100}m`
+    };
+  }
+  return { qty, log: '' };
+};
+
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
-  const lines = text.split('\n').filter(line => line.trim());
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
+  
+  let currentPrefix = ''; // Para linhas hierárquicas (ex: "2,5mm:" seguido de cores)
 
   lines.forEach((line, index) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
+    // Detecta linha de prefixo (ex: "cabos 1,5mm:" ou "2,5mm:")
+    if (line.endsWith(':')) {
+      currentPrefix = line.replace(/:$/, '').trim();
+      return;
+    }
 
-    // Regex para capturar quantidade no início
-    const qtyMatch = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|kg|g|l|r|rl|x)?\s*[-]?\s*(.+)/i);
+    // Normaliza tipos (fio → cabo)
+    line = normalizeItemType(line);
+
+    // Se tem prefixo ativo, concatena
+    if (currentPrefix && !line.match(/^\d/)) {
+      line = `${currentPrefix} ${line}`;
+    }
+
+    // Extrai quantidade
+    const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
+    
+    let baseQty = 1;
+    let description = line;
     
     if (qtyMatch) {
-      const qty = parseFloat(qtyMatch[1].replace(',', '.'));
-      const description = qtyMatch[2].trim();
-      
+      baseQty = parseFloat(qtyMatch[1].replace(',', '.'));
+      description = qtyMatch[2].trim();
+    }
+
+    // Converte ROLO em metros
+    const { qty: finalQty, log: conversionLog } = convertRoloToMeters(baseQty, description);
+
+    // Divide por cores se necessário
+    const splitItems = splitMultipleColors(description, finalQty);
+
+    splitItems.forEach((split, splitIndex) => {
       items.push({
-        id: `item-${Date.now()}-${index}`,
-        originalRequest: description,
-        quantity: qty,
+        id: `item-${Date.now()}-${index}-${splitIndex}`,
+        originalRequest: split.text,
+        quantity: split.qty,
+        conversionLog: conversionLog || undefined
       });
-    } else {
-      // Sem quantidade detectada, assume 1
-      items.push({
-        id: `item-${Date.now()}-${index}`,
-        originalRequest: trimmed,
-        quantity: 1,
-      });
+    });
+
+    // Limpa prefixo após uso se não terminou com ":"
+    if (currentPrefix && line.match(/^\d/)) {
+      currentPrefix = '';
     }
   });
 
   return items;
 };
 
-// Função de busca fuzzy MELHORADA
+// ============================================================================
+// BUSCA FUZZY MELHORADA COM SINÔNIMOS
+// ============================================================================
 const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
-  const normalizedSearch = cleanTextForLearning(searchText);
+  // Normaliza sinônimos ANTES da busca
+  const normalizedSearch = normalizeItemType(cleanTextForLearning(searchText));
   const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length >= 2);
 
   if (searchWords.length === 0) return null;
 
   let bestMatch: CatalogItem | null = null;
   let highestScore = 0;
-  const minScore = searchWords.length * 8; // Score mínimo proporcional ao número de palavras
+  const minScore = searchWords.length * 8;
 
   for (const item of catalogItems) {
-    const itemText = cleanTextForLearning(item.description);
+    const itemText = normalizeItemType(cleanTextForLearning(item.description));
     let score = 0;
     let matchedWords = 0;
 
-    // Verifica cada palavra da busca
     for (const word of searchWords) {
       if (itemText.includes(word)) {
         matchedWords++;
-        score += word.length * 3; // Peso por tamanho da palavra
+        score += word.length * 3;
         
-        // Bonus se a palavra aparece no início
         if (itemText.startsWith(word)) {
           score += 10;
         }
       }
     }
 
-    // REGRA CRÍTICA: Todas as palavras importantes devem estar presentes
     const importantWordsMatched = matchedWords / searchWords.length;
-    if (importantWordsMatched < 0.6) {
-      // Se menos de 60% das palavras foram encontradas, ignora
+    if (importantWordsMatched < 0.5) { // Reduzido para 50% (era 60%)
       continue;
     }
 
-    // Bonus GRANDE para match de frase completa
     if (itemText.includes(normalizedSearch)) {
       score += 200;
     }
 
-    // Bonus se começa com o texto de busca exato
     if (itemText.startsWith(normalizedSearch)) {
       score += 100;
     }
 
-    // Bonus se o tamanho é similar (evita matches muito diferentes)
     const lengthDiff = Math.abs(normalizedSearch.length - itemText.length);
-    if (lengthDiff < 10) {
+    if (lengthDiff < 15) {
       score += 30;
     }
 
-    // Penaliza se tem muitas palavras extras (item muito longo)
     const itemWords = itemText.split(/\s+/).length;
     if (itemWords > searchWords.length * 3) {
       score -= 20;
@@ -178,7 +243,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   const [inputText, setInputText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Processa o texto em tempo real
   useEffect(() => {
     if (!inputText.trim() || catalog.length === 0) {
       onItemsChange([]);
@@ -190,7 +254,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     const processedItems: QuoteItem[] = parsedItems.map(item => {
       const cleanText = cleanTextForLearning(item.originalRequest);
       
-      // Primeiro: tenta encontrar match aprendido
       const learnedProductId = findLearnedMatch(cleanText);
       if (learnedProductId) {
         const learnedProduct = catalog.find(c => c.id === learnedProductId);
@@ -203,7 +266,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
         }
       }
 
-      // Segundo: busca fuzzy no catálogo
       const fuzzyMatch = findBestMatch(item.originalRequest, catalog);
       if (fuzzyMatch) {
         return {
@@ -213,7 +275,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
         };
       }
 
-      // Não encontrado
       return {
         ...item,
         catalogItem: null,
@@ -262,7 +323,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Digite os itens do pedido (um por linha)&#10;Exemplos:&#10;2 disjuntor 10a&#10;5 tomada 2p+t&#10;10m cabo 2.5mm&#10;100 un interruptor simples"
+            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;2 rolos cabo 2,5mm azul (converte automaticamente para 200m)&#10;10 disjuntor bipolar 40a&#10;200m cabo 1,5mm AZ/VM (divide em 2 itens)&#10;&#10;cabos 2,5mm:&#10;  150m preto&#10;  250m azul"
             className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
             style={{ fontFamily: 'ui-monospace, monospace' }}
           />
@@ -280,7 +341,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <span>💡 Dica: Use quebras de linha para separar os itens</span>
+            <span>💡 Rolos são convertidos automaticamente (1 rolo = 100m)</span>
           </div>
           {inputText && (
             <span className="text-blue-600 font-medium">
