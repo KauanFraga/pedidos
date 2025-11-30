@@ -63,6 +63,29 @@ const normalizeItemType = (text: string): string => {
   return result;
 };
 
+// Extrai e divide cores de uma descrição
+const extractAndSplitColors = (text: string): string[] => {
+  // Procura por padrões como (preto/azul/verde) ou (preto/azul) ou preto/azul
+  const colorPattern = /\(([^)]+)\)/g;
+  let match;
+  const colorGroups: string[] = [];
+
+  while ((match = colorPattern.exec(text)) !== null) {
+    const colors = match[1].split('/').map(c => c.trim());
+    colorGroups.push(...colors);
+  }
+
+  // Se não encontrou cores entre parênteses, procura cores soltas
+  if (colorGroups.length === 0) {
+    const colors = text.match(/\b(preto|azul|vermelho|branco|amarelo|verde|rosa|laranja|cinza|marrom|pt|az|vm|br|am|vd)\b/gi);
+    if (colors && colors.length > 1) {
+      return colors;
+    }
+  }
+
+  return colorGroups.length > 0 ? colorGroups : [''];
+};
+
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
@@ -70,41 +93,69 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
   lines.forEach((line, index) => {
     const qtyMatch = line.match(/^[-*]?\s*(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
     
-    let qty = 1;
+    let baseQty = 1;
     let description = line.replace(/^[-*]\s*/, '');
     
     if (qtyMatch) {
-      qty = parseFloat(qtyMatch[1].replace(',', '.'));
+      baseQty = parseFloat(qtyMatch[1].replace(',', '.'));
       description = qtyMatch[2].trim();
     }
 
     // Converte rolos em metros
     let conversionLog = '';
     if (description.toLowerCase().includes('rolo')) {
-      qty = qty * 100;
-      conversionLog = `${qty / 100} rolo(s) → ${qty}m`;
+      baseQty = baseQty * 100;
+      conversionLog = `${baseQty / 100} rolo(s) → ${baseQty}m`;
       description = description.replace(/\brolos?\b/gi, 'cabo');
     }
 
-    items.push({
-      id: `item-${Date.now()}-${index}`,
-      originalRequest: description,
-      quantity: qty,
-      conversionLog: conversionLog || undefined
-    });
+    // Extrai cores e divide se necessário
+    const colors = extractAndSplitColors(description);
+    
+    if (colors.length > 1) {
+      // Divide entre as cores
+      const qtyPerColor = baseQty / colors.length;
+      colors.forEach((color, colorIndex) => {
+        // Remove o grupo de cores original e substitui pela cor específica
+        let cleanDesc = description.replace(/\([^)]+\)/g, '').trim();
+        cleanDesc = `${cleanDesc} ${color}`.trim();
+        
+        items.push({
+          id: `item-${Date.now()}-${index}-${colorIndex}`,
+          originalRequest: cleanDesc,
+          quantity: qtyPerColor,
+          conversionLog: conversionLog || undefined
+        });
+      });
+    } else {
+      // Remove parênteses se houver
+      const cleanDesc = description.replace(/[()]/g, '').trim();
+      
+      items.push({
+        id: `item-${Date.now()}-${index}`,
+        originalRequest: cleanDesc,
+        quantity: baseQty,
+        conversionLog: conversionLog || undefined
+      });
+    }
   });
 
   return items;
 };
 
 // ============================================================================
-// BUSCA SIMPLES E RÁPIDA (SEM IA)
+// BUSCA SIMPLES E RÁPIDA (SEM IA) - MELHORADA
 // ============================================================================
 const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
   const normalized = normalizeItemType(cleanTextForLearning(searchText));
   const words = normalized.split(/\s+/).filter(w => w.length >= 2);
+
+  // Extrai características técnicas (bitolas, amperagens)
+  const bitola = searchText.match(/\d+[.,]?\d*\s*mm/i)?.[0]?.replace(/\s/g, '').toLowerCase();
+  const amperagem = searchText.match(/\d+\s*a\b/i)?.[0]?.replace(/\s/g, '').toLowerCase();
+  const cor = searchText.match(/\b(preto|azul|vermelho|branco|amarelo|verde|pt|az|vm|br|am|vd)\b/i)?.[0]?.toLowerCase();
 
   let bestMatch: CatalogItem | null = null;
   let highestScore = 0;
@@ -113,24 +164,64 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
     const itemText = normalizeItemType(cleanTextForLearning(item.description));
     let score = 0;
 
+    // CRÍTICO: Se tem bitola/amperagem na busca, DEVE ter no item
+    if (bitola) {
+      const itemBitola = item.description.match(/\d+[.,]?\d*\s*mm/i)?.[0]?.replace(/\s/g, '').toLowerCase();
+      if (itemBitola !== bitola) continue; // Pula se bitola diferente
+      score += 100; // Bonus grande por bitola correta
+    }
+
+    if (amperagem) {
+      const itemAmp = item.description.match(/\d+\s*a\b/i)?.[0]?.replace(/\s/g, '').toLowerCase();
+      if (itemAmp !== amperagem) continue; // Pula se amperagem diferente
+      score += 100; // Bonus grande por amperagem correta
+    }
+
+    if (cor) {
+      const itemCor = item.description.match(/\b(preto|azul|vermelho|branco|amarelo|verde|pt|az|vm|br|am|vd)\b/i)?.[0]?.toLowerCase();
+      
+      // Mapeia abreviações
+      const corMap: Record<string, string[]> = {
+        'preto': ['preto', 'pt'],
+        'azul': ['azul', 'az'],
+        'vermelho': ['vermelho', 'vm'],
+        'branco': ['branco', 'br'],
+        'amarelo': ['amarelo', 'am'],
+        'verde': ['verde', 'vd']
+      };
+
+      let corMatch = false;
+      for (const [nome, variacoes] of Object.entries(corMap)) {
+        if (variacoes.includes(cor) && itemCor && variacoes.includes(itemCor)) {
+          corMatch = true;
+          break;
+        }
+      }
+
+      if (!corMatch && itemCor) continue; // Pula se cor diferente
+      if (corMatch) score += 80; // Bonus por cor correta
+    }
+
     // Conta palavras em comum
+    let matchedWords = 0;
     for (const word of words) {
       if (itemText.includes(word)) {
-        score += word.length * 2;
+        matchedWords++;
+        score += word.length * 3;
       }
+    }
+
+    // Precisa de pelo menos 60% das palavras
+    if (words.length > 2 && matchedWords / words.length < 0.6) {
+      continue;
     }
 
     // Bonus para match exato
     if (itemText.includes(normalized)) {
-      score += 100;
+      score += 150;
     }
 
-    // Bonus se começa igual
-    if (itemText.startsWith(normalized.substring(0, 10))) {
-      score += 50;
-    }
-
-    if (score > highestScore && score > 15) {
+    if (score > highestScore && score > 20) {
       highestScore = score;
       bestMatch = item;
     }
