@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Sparkles } from 'lucide-react';
+import { Search, X, Sparkles, Zap } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -42,7 +42,6 @@ const getLearnedMatches = (): LearnedMatch[] => {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored ? JSON.parse(stored) : [];
   } catch (e) {
-    console.error("Error parsing learned matches", e);
     return [];
   }
 };
@@ -55,99 +54,97 @@ const findLearnedMatch = (text: string): string | null => {
 };
 
 // ============================================================================
-// PARSER COM CONVERSÕES
+// PARSER
 // ============================================================================
 const normalizeItemType = (text: string): string => {
-  const lower = text.toLowerCase();
-  if (lower.includes('fio') || lower.includes('cabo') || lower.includes('rolo')) {
-    return text.replace(/\b(fio|cabo|rolo)s?\b/gi, 'cabo');
-  }
-  return text;
-};
-
-const extractColors = (text: string): string[] => {
-  const colorPattern = /\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)\b/gi;
-  const matches = text.match(colorPattern);
-  if (!matches) return [];
-  return [...new Set(matches.map(c => c.toUpperCase()))];
-};
-
-const splitMultipleColors = (line: string, baseQty: number): { qty: number; text: string; }[] => {
-  const colors = extractColors(line);
-  if (colors.length >= 2 && (line.includes('/') || /\be\b/i.test(line))) {
-    return colors.map(color => ({
-      qty: baseQty / colors.length,
-      text: line.replace(/\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)([/,\se]+)(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)/gi, color)
-    }));
-  }
-  return [{ qty: baseQty, text: line }];
-};
-
-const convertRoloToMeters = (qty: number, text: string): { qty: number; log: string } => {
-  const lower = text.toLowerCase();
-  if (lower.includes('rolo')) {
-    return {
-      qty: qty * 100,
-      log: `${qty} rolo(s) → ${qty * 100}m`
-    };
-  }
-  return { qty, log: '' };
+  let result = text.toLowerCase();
+  result = result.replace(/\b(fio|rolos?)\b/gi, 'cabo');
+  result = result.replace(/\b(split\s*bolt|splitbolt)\b/gi, 'conector');
+  return result;
 };
 
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
-  let currentPrefix = '';
 
   lines.forEach((line, index) => {
-    if (line.endsWith(':')) {
-      currentPrefix = line.replace(/:$/, '').trim();
-      return;
-    }
-
-    line = normalizeItemType(line);
-
-    if (currentPrefix && !line.match(/^\d/)) {
-      line = `${currentPrefix} ${line}`;
-    }
-
-    const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
+    const qtyMatch = line.match(/^[-*]?\s*(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
     
-    let baseQty = 1;
-    let description = line;
+    let qty = 1;
+    let description = line.replace(/^[-*]\s*/, '');
     
     if (qtyMatch) {
-      baseQty = parseFloat(qtyMatch[1].replace(',', '.'));
+      qty = parseFloat(qtyMatch[1].replace(',', '.'));
       description = qtyMatch[2].trim();
     }
 
-    const { qty: finalQty, log: conversionLog } = convertRoloToMeters(baseQty, description);
-    const splitItems = splitMultipleColors(description, finalQty);
-
-    splitItems.forEach((split, splitIndex) => {
-      items.push({
-        id: `item-${Date.now()}-${index}-${splitIndex}`,
-        originalRequest: split.text,
-        quantity: split.qty,
-        conversionLog: conversionLog || undefined
-      });
-    });
-
-    if (currentPrefix && line.match(/^\d/)) {
-      currentPrefix = '';
+    // Converte rolos em metros
+    let conversionLog = '';
+    if (description.toLowerCase().includes('rolo')) {
+      qty = qty * 100;
+      conversionLog = `${qty / 100} rolo(s) → ${qty}m`;
+      description = description.replace(/\brolos?\b/gi, 'cabo');
     }
+
+    items.push({
+      id: `item-${Date.now()}-${index}`,
+      originalRequest: description,
+      quantity: qty,
+      conversionLog: conversionLog || undefined
+    });
   });
 
   return items;
 };
 
 // ============================================================================
-// IA MATCHING - USA CLAUDE PARA ENCONTRAR O MELHOR PRODUTO
+// BUSCA SIMPLES E RÁPIDA (SEM IA)
 // ============================================================================
-const findMatchWithAI = async (searchText: string, catalogItems: CatalogItem[]): Promise<CatalogItem | null> => {
+const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
-  // Limita a 50 itens mais relevantes para não estourar o contexto
+  const normalized = normalizeItemType(cleanTextForLearning(searchText));
+  const words = normalized.split(/\s+/).filter(w => w.length >= 2);
+
+  let bestMatch: CatalogItem | null = null;
+  let highestScore = 0;
+
+  for (const item of catalogItems) {
+    const itemText = normalizeItemType(cleanTextForLearning(item.description));
+    let score = 0;
+
+    // Conta palavras em comum
+    for (const word of words) {
+      if (itemText.includes(word)) {
+        score += word.length * 2;
+      }
+    }
+
+    // Bonus para match exato
+    if (itemText.includes(normalized)) {
+      score += 100;
+    }
+
+    // Bonus se começa igual
+    if (itemText.startsWith(normalized.substring(0, 10))) {
+      score += 50;
+    }
+
+    if (score > highestScore && score > 15) {
+      highestScore = score;
+      bestMatch = item;
+    }
+  }
+
+  return bestMatch;
+};
+
+// ============================================================================
+// BUSCA COM IA (GEMINI) - APENAS QUANDO SOLICITADO
+// ============================================================================
+const findMatchWithGemini = async (searchText: string, catalogItems: CatalogItem[]): Promise<CatalogItem | null> => {
+  if (!searchText || catalogItems.length === 0) return null;
+
   const relevantItems = catalogItems.slice(0, 100);
 
   try {
@@ -158,38 +155,25 @@ const findMatchWithAI = async (searchText: string, catalogItems: CatalogItem[]):
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        messages: [
-          {
-            role: "user",
-            content: `Você é um especialista em materiais elétricos. Sua tarefa é encontrar o produto EXATO do catálogo que corresponde ao pedido do cliente.
+        max_tokens: 500,
+        messages: [{
+          role: "user",
+          content: `Encontre o produto EXATO que corresponde ao pedido:
 
-PEDIDO DO CLIENTE: "${searchText}"
+PEDIDO: "${searchText}"
 
-CATÁLOGO DISPONÍVEL:
+CATÁLOGO:
 ${relevantItems.map((item, idx) => `${idx}. ${item.description}`).join('\n')}
 
-INSTRUÇÕES:
-- Analise o pedido e encontre o produto que MELHOR corresponde
-- Considere sinônimos: "fio" = "cabo", "split bolt" = "conector", etc
-- Considere especificações técnicas: bitolas (2,5mm, 16mm), amperagens (10a, 40a), cores
-- Se o pedido mencionar características que o produto deve ter (ex: 2,5mm azul), o produto DEVE ter essas características
-- Se não houver match perfeito, retorne o mais próximo possível
-- Se realmente não houver nenhum match aceitável, retorne "NENHUM"
-
-RESPONDA APENAS COM O NÚMERO DO ÍNDICE do produto correspondente (ex: "5") ou "NENHUM".
-Não explique, apenas o número ou "NENHUM".`
-          }
-        ],
+Responda APENAS o número do índice (ex: "5") ou "NENHUM" se não houver match.`
+        }],
       })
     });
 
     const data = await response.json();
     const resultText = data.content?.[0]?.text?.trim();
 
-    if (!resultText || resultText === "NENHUM") {
-      return null;
-    }
+    if (!resultText || resultText === "NENHUM") return null;
 
     const index = parseInt(resultText);
     if (!isNaN(index) && index >= 0 && index < relevantItems.length) {
@@ -198,7 +182,7 @@ Não explique, apenas o número ou "NENHUM".`
 
     return null;
   } catch (error) {
-    console.error("AI matching error:", error);
+    console.error("AI error:", error);
     return null;
   }
 };
@@ -220,73 +204,75 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   onCustomerNameChange,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isRefiningWithAI, setIsRefiningWithAI] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Busca SIMPLES e RÁPIDA em tempo real
   useEffect(() => {
     if (!inputText.trim() || catalog.length === 0) {
       onItemsChange([]);
       return;
     }
 
-    // Limpa timeout anterior
-    if (processingTimeoutRef.current) {
-      clearTimeout(processingTimeoutRef.current);
-    }
-
-    // Aguarda 800ms após parar de digitar para processar
-    processingTimeoutRef.current = setTimeout(async () => {
-      setIsProcessing(true);
+    const parsedItems = parseOrderText(inputText);
+    
+    const processedItems: QuoteItem[] = parsedItems.map(item => {
+      const cleanText = cleanTextForLearning(item.originalRequest);
       
-      const parsedItems = parseOrderText(inputText);
-      const processedItems: QuoteItem[] = [];
-
-      for (const item of parsedItems) {
-        const cleanText = cleanTextForLearning(item.originalRequest);
-        
-        // Primeiro: tenta match aprendido
-        const learnedProductId = findLearnedMatch(cleanText);
-        if (learnedProductId) {
-          const learnedProduct = catalog.find(c => c.id === learnedProductId);
-          if (learnedProduct) {
-            processedItems.push({
-              ...item,
-              catalogItem: learnedProduct,
-              isLearned: true,
-            });
-            continue;
-          }
-        }
-
-        // Segundo: usa IA para encontrar o melhor match
-        const aiMatch = await findMatchWithAI(item.originalRequest, catalog);
-        if (aiMatch) {
-          processedItems.push({
-            ...item,
-            catalogItem: aiMatch,
-            isLearned: false,
-          });
-        } else {
-          processedItems.push({
-            ...item,
-            catalogItem: null,
-            isLearned: false,
-          });
+      // Tenta match aprendido primeiro
+      const learnedProductId = findLearnedMatch(cleanText);
+      if (learnedProductId) {
+        const learnedProduct = catalog.find(c => c.id === learnedProductId);
+        if (learnedProduct) {
+          return { ...item, catalogItem: learnedProduct, isLearned: true };
         }
       }
 
-      onItemsChange(processedItems);
-      setIsProcessing(false);
-    }, 800);
-
-    return () => {
-      if (processingTimeoutRef.current) {
-        clearTimeout(processingTimeoutRef.current);
+      // Busca simples e rápida
+      const simpleMatch = findSimpleMatch(item.originalRequest, catalog);
+      if (simpleMatch) {
+        return { ...item, catalogItem: simpleMatch, isLearned: false };
       }
-    };
+
+      return { ...item, catalogItem: null, isLearned: false };
+    });
+
+    onItemsChange(processedItems);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, catalog]);
+
+  // Refina com IA apenas quando clicar no botão
+  const handleRefineWithAI = async () => {
+    if (!inputText.trim() || catalog.length === 0) return;
+
+    setIsRefiningWithAI(true);
+    const parsedItems = parseOrderText(inputText);
+    const processedItems: QuoteItem[] = [];
+
+    for (const item of parsedItems) {
+      const cleanText = cleanTextForLearning(item.originalRequest);
+      
+      const learnedProductId = findLearnedMatch(cleanText);
+      if (learnedProductId) {
+        const learnedProduct = catalog.find(c => c.id === learnedProductId);
+        if (learnedProduct) {
+          processedItems.push({ ...item, catalogItem: learnedProduct, isLearned: true });
+          continue;
+        }
+      }
+
+      // USA IA para encontrar
+      const aiMatch = await findMatchWithGemini(item.originalRequest, catalog);
+      if (aiMatch) {
+        processedItems.push({ ...item, catalogItem: aiMatch, isLearned: false });
+      } else {
+        processedItems.push({ ...item, catalogItem: null, isLearned: false });
+      }
+    }
+
+    onItemsChange(processedItems);
+    setIsRefiningWithAI(false);
+  };
 
   const handleClear = () => {
     setInputText('');
@@ -294,25 +280,39 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   };
 
   const lineCount = inputText.split('\n').filter(line => line.trim()).length;
+  const notFoundCount = inputText.split('\n').filter(line => line.trim()).length;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-purple-50 to-blue-50">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="bg-gradient-to-br from-purple-500 to-blue-500 p-2 rounded-lg">
-            <Sparkles className="w-5 h-5 text-white" />
+      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-blue-500 p-2 rounded-lg">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800">Digitação Rápida</h3>
+              <p className="text-xs text-slate-600">Busca instantânea enquanto você digita</p>
+            </div>
           </div>
-          <div className="flex-1">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              Digitação com IA
-              {isProcessing && (
-                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full animate-pulse">
-                  Processando...
-                </span>
-              )}
-            </h3>
-            <p className="text-xs text-slate-600">Sistema inteligente identifica produtos automaticamente</p>
-          </div>
+
+          <button
+            onClick={handleRefineWithAI}
+            disabled={!inputText.trim() || isRefiningWithAI}
+            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md text-sm"
+          >
+            {isRefiningWithAI ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Refinando...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Refinar com IA
+              </>
+            )}
+          </button>
         </div>
 
         <div className="mb-3">
@@ -321,7 +321,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             value={customerName}
             onChange={(e) => onCustomerNameChange(e.target.value)}
             placeholder="Nome do cliente (opcional)"
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
         </div>
       </div>
@@ -332,10 +332,9 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;2 rolos cabo 2,5mm azul&#10;10 disjuntor bipolar 40a&#10;2 conector split bolt 16mm&#10;400m fio 16mm az&#10;&#10;A IA identifica automaticamente o produto correto! ✨"
-            className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none font-mono text-sm"
+            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;- 400 mt 1,5 preto ou vermelho&#10;- 10 disjuntor bipolar 40a&#10;- 2 conector split bolt 16mm&#10;&#10;💡 Use o botão 'Refinar com IA' para melhorar matches"
+            className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
             style={{ fontFamily: 'ui-monospace, monospace' }}
-            disabled={isProcessing}
           />
           
           {inputText && (
@@ -351,10 +350,10 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <span>✨ Powered by Claude AI - Reconhece sinônimos e variações automaticamente</span>
+            <span>⚡ Busca instantânea • ✨ Refine com IA quando necessário</span>
           </div>
           {inputText && (
-            <span className="text-purple-600 font-medium">
+            <span className="text-blue-600 font-medium">
               {lineCount} {lineCount === 1 ? 'linha' : 'linhas'}
             </span>
           )}
