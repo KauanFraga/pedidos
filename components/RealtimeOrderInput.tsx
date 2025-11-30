@@ -161,58 +161,104 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
 };
 
 // ============================================================================
-// BUSCA FUZZY MELHORADA COM SINÔNIMOS
+// BUSCA ULTRA RIGOROSA - SÓ ACEITA MATCHES MUITO PRECISOS
 // ============================================================================
+
+// Extrai características chave (bitolas, amperagens, etc)
+const extractKeyFeatures = (text: string): string[] => {
+  const features: string[] = [];
+  
+  // Bitolas de cabo (ex: 2,5mm, 16mm, 2.5mm)
+  const bitolas = text.match(/\d+[.,]?\d*\s*mm/gi);
+  if (bitolas) features.push(...bitolas.map(b => b.toLowerCase().replace(/\s/g, '')));
+  
+  // Amperagens (ex: 10a, 40a, 60a)
+  const amperes = text.match(/\d+\s*a\b/gi);
+  if (amperes) features.push(...amperes.map(a => a.toLowerCase().replace(/\s/g, '')));
+  
+  // Cores abreviadas
+  const coresAbrev = text.match(/\b(az|vm|pt|br|am|vd|rs|pr|lj|cx)\b/gi);
+  if (coresAbrev) features.push(...coresAbrev.map(c => c.toLowerCase()));
+  
+  return features;
+};
+
 const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
-  // Normaliza sinônimos ANTES da busca
   const normalizedSearch = normalizeItemType(cleanTextForLearning(searchText));
   const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length >= 2);
+  const searchFeatures = extractKeyFeatures(searchText);
 
   if (searchWords.length === 0) return null;
 
   let bestMatch: CatalogItem | null = null;
   let highestScore = 0;
-  const minScore = searchWords.length * 8;
+  const minScore = Math.max(30, searchWords.length * 10); // Score mínimo mais alto
 
   for (const item of catalogItems) {
     const itemText = normalizeItemType(cleanTextForLearning(item.description));
+    const itemFeatures = extractKeyFeatures(item.description);
     let score = 0;
     let matchedWords = 0;
+    let criticalFeaturesMissing = false;
 
-    for (const word of searchWords) {
-      if (itemText.includes(word)) {
-        matchedWords++;
-        score += word.length * 3;
-        
-        if (itemText.startsWith(word)) {
-          score += 10;
+    // REGRA CRÍTICA 1: Se busca tem características (bitola, amperagem), DEVE ter no item
+    if (searchFeatures.length > 0) {
+      let featuresMatched = 0;
+      for (const feature of searchFeatures) {
+        if (itemFeatures.some(f => f === feature || itemText.includes(feature))) {
+          featuresMatched++;
+          score += 30; // MUITO peso para características corretas
         }
+      }
+      
+      // Se não achou TODAS as características, rejeita
+      if (featuresMatched < searchFeatures.length) {
+        continue; // PRÓXIMO ITEM
       }
     }
 
-    const importantWordsMatched = matchedWords / searchWords.length;
-    if (importantWordsMatched < 0.5) { // Reduzido para 50% (era 60%)
+    // REGRA CRÍTICA 2: Palavras-chave principais devem estar presentes
+    const mainWords = searchWords.filter(w => w.length >= 3); // Só palavras importantes
+    for (const word of mainWords) {
+      if (itemText.includes(word)) {
+        matchedWords++;
+        score += word.length * 5;
+      }
+    }
+
+    // Se não achou pelo menos 70% das palavras principais, rejeita
+    if (mainWords.length > 0 && matchedWords / mainWords.length < 0.7) {
       continue;
     }
 
+    // BONUS GRANDES para matches perfeitos
     if (itemText.includes(normalizedSearch)) {
-      score += 200;
+      score += 300;
     }
 
     if (itemText.startsWith(normalizedSearch)) {
-      score += 100;
+      score += 150;
     }
 
-    const lengthDiff = Math.abs(normalizedSearch.length - itemText.length);
-    if (lengthDiff < 15) {
-      score += 30;
+    // BONUS para ordem correta das palavras
+    let lastIndex = -1;
+    let inOrder = true;
+    for (const word of searchWords) {
+      const idx = itemText.indexOf(word);
+      if (idx > lastIndex) {
+        lastIndex = idx;
+      } else if (idx !== -1) {
+        inOrder = false;
+      }
     }
+    if (inOrder) score += 50;
 
-    const itemWords = itemText.split(/\s+/).length;
-    if (itemWords > searchWords.length * 3) {
-      score -= 20;
+    // PENALIZA fortemente se item tem características que a busca não tem
+    const extraFeatures = itemFeatures.filter(f => !searchFeatures.includes(f));
+    if (extraFeatures.length > 2) {
+      score -= 50; // Provavelmente é produto diferente
     }
 
     if (score > highestScore && score >= minScore) {
