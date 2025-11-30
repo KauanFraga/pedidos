@@ -63,9 +63,7 @@ const normalizeItemType = (text: string): string => {
   return result;
 };
 
-// Extrai e divide cores de uma descrição
 const extractAndSplitColors = (text: string): string[] => {
-  // Procura por padrões como (preto/azul/verde) ou (preto/azul) ou preto/azul
   const colorPattern = /\(([^)]+)\)/g;
   let match;
   const colorGroups: string[] = [];
@@ -75,7 +73,6 @@ const extractAndSplitColors = (text: string): string[] => {
     colorGroups.push(...colors);
   }
 
-  // Se não encontrou cores entre parênteses, procura cores soltas
   if (colorGroups.length === 0) {
     const colors = text.match(/\b(preto|azul|vermelho|branco|amarelo|verde|rosa|laranja|cinza|marrom|pt|az|vm|br|am|vd)\b/gi);
     if (colors && colors.length > 1) {
@@ -101,7 +98,6 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
       description = qtyMatch[2].trim();
     }
 
-    // Converte rolos em metros
     let conversionLog = '';
     if (description.toLowerCase().includes('rolo')) {
       baseQty = baseQty * 100;
@@ -109,14 +105,11 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
       description = description.replace(/\brolos?\b/gi, 'cabo');
     }
 
-    // Extrai cores e divide se necessário
     const colors = extractAndSplitColors(description);
     
     if (colors.length > 1) {
-      // Divide entre as cores
       const qtyPerColor = baseQty / colors.length;
       colors.forEach((color, colorIndex) => {
-        // Remove o grupo de cores original e substitui pela cor específica
         let cleanDesc = description.replace(/\([^)]+\)/g, '').trim();
         cleanDesc = `${cleanDesc} ${color}`.trim();
         
@@ -128,7 +121,6 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
         });
       });
     } else {
-      // Remove parênteses se houver
       const cleanDesc = description.replace(/[()]/g, '').trim();
       
       items.push({
@@ -144,7 +136,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
 };
 
 // ============================================================================
-// BUSCA SIMPLES E RÁPIDA (SEM IA) - MELHORADA
+// BUSCA SIMPLES E RÁPIDA
 // ============================================================================
 const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
@@ -152,7 +144,6 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
   const normalized = normalizeItemType(cleanTextForLearning(searchText));
   const words = normalized.split(/\s+/).filter(w => w.length >= 2);
 
-  // Extrai características técnicas (bitolas, amperagens)
   const bitola = searchText.match(/\d+[.,]?\d*\s*mm/i)?.[0]?.replace(/\s/g, '').toLowerCase();
   const amperagem = searchText.match(/\d+\s*a\b/i)?.[0]?.replace(/\s/g, '').toLowerCase();
   const cor = searchText.match(/\b(preto|azul|vermelho|branco|amarelo|verde|pt|az|vm|br|am|vd)\b/i)?.[0]?.toLowerCase();
@@ -164,23 +155,21 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
     const itemText = normalizeItemType(cleanTextForLearning(item.description));
     let score = 0;
 
-    // CRÍTICO: Se tem bitola/amperagem na busca, DEVE ter no item
     if (bitola) {
       const itemBitola = item.description.match(/\d+[.,]?\d*\s*mm/i)?.[0]?.replace(/\s/g, '').toLowerCase();
-      if (itemBitola !== bitola) continue; // Pula se bitola diferente
-      score += 100; // Bonus grande por bitola correta
+      if (itemBitola !== bitola) continue;
+      score += 100;
     }
 
     if (amperagem) {
       const itemAmp = item.description.match(/\d+\s*a\b/i)?.[0]?.replace(/\s/g, '').toLowerCase();
-      if (itemAmp !== amperagem) continue; // Pula se amperagem diferente
-      score += 100; // Bonus grande por amperagem correta
+      if (itemAmp !== amperagem) continue;
+      score += 100;
     }
 
     if (cor) {
       const itemCor = item.description.match(/\b(preto|azul|vermelho|branco|amarelo|verde|pt|az|vm|br|am|vd)\b/i)?.[0]?.toLowerCase();
       
-      // Mapeia abreviações
       const corMap: Record<string, string[]> = {
         'preto': ['preto', 'pt'],
         'azul': ['azul', 'az'],
@@ -198,11 +187,10 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
         }
       }
 
-      if (!corMatch && itemCor) continue; // Pula se cor diferente
-      if (corMatch) score += 80; // Bonus por cor correta
+      if (!corMatch && itemCor) continue;
+      if (corMatch) score += 80;
     }
 
-    // Conta palavras em comum
     let matchedWords = 0;
     for (const word of words) {
       if (itemText.includes(word)) {
@@ -211,12 +199,10 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
       }
     }
 
-    // Precisa de pelo menos 60% das palavras
     if (words.length > 2 && matchedWords / words.length < 0.6) {
       continue;
     }
 
-    // Bonus para match exato
     if (itemText.includes(normalized)) {
       score += 150;
     }
@@ -231,50 +217,66 @@ const findSimpleMatch = (searchText: string, catalogItems: CatalogItem[]): Catal
 };
 
 // ============================================================================
-// BUSCA COM IA (GEMINI) - APENAS QUANDO SOLICITADO
+// GEMINI AI INTEGRATION
 // ============================================================================
-const findMatchWithGemini = async (searchText: string, catalogItems: CatalogItem[]): Promise<CatalogItem | null> => {
-  if (!searchText || catalogItems.length === 0) return null;
+const processWithGemini = async (orderText: string, catalog: CatalogItem[]): Promise<QuoteItem[]> => {
+  const catalogString = catalog
+    .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
+    .join('\n');
 
-  const relevantItems = catalogItems.slice(0, 100);
+  const systemInstruction = `You are an expert at matching electrical products. 
+Match each line from the customer order to the best product in the catalog.
+Consider synonyms: "fio"="cabo", "split bolt"="conector".
+If colors are in parentheses like (preto/azul/verde), split into separate items.
+Return JSON with array of: {originalRequest, quantity, catalogIndex, conversionLog}`;
+
+  const prompt = `CATALOG:\n${catalogString}\n\nCUSTOMER REQUEST:\n${orderText}`;
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 500,
+        max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `Encontre o produto EXATO que corresponde ao pedido:
-
-PEDIDO: "${searchText}"
-
-CATÁLOGO:
-${relevantItems.map((item, idx) => `${idx}. ${item.description}`).join('\n')}
-
-Responda APENAS o número do índice (ex: "5") ou "NENHUM" se não houver match.`
+          content: `${systemInstruction}\n\n${prompt}\n\nRespond ONLY with valid JSON in this format:
+{
+  "mappedItems": [
+    {"originalRequest": "cabo 16mm preto", "quantity": 100, "catalogIndex": 5, "conversionLog": "1 rolo -> 100m"}
+  ]
+}`
         }],
       })
     });
 
     const data = await response.json();
-    const resultText = data.content?.[0]?.text?.trim();
+    const text = data.content?.[0]?.text?.trim();
+    
+    if (!text) throw new Error("No response");
 
-    if (!resultText || resultText === "NENHUM") return null;
+    const cleanJson = text.replace(/```json\n?/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJson);
 
-    const index = parseInt(resultText);
-    if (!isNaN(index) && index >= 0 && index < relevantItems.length) {
-      return relevantItems[index];
-    }
+    return (parsed.mappedItems || []).map((item: any) => {
+      const isFound = item.catalogIndex !== -1 && item.catalogIndex !== null && catalog[item.catalogIndex];
+      const catalogItem = isFound ? catalog[item.catalogIndex] : null;
+      let qty = parseFloat(item.quantity);
+      if (isNaN(qty) || qty <= 0) qty = 1;
 
-    return null;
+      return {
+        id: `item-${Date.now()}-${Math.random()}`,
+        quantity: qty,
+        originalRequest: item.originalRequest,
+        catalogItem: catalogItem,
+        conversionLog: item.conversionLog || undefined,
+        isLearned: false
+      };
+    });
   } catch (error) {
-    console.error("AI error:", error);
-    return null;
+    console.error("AI Error:", error);
+    throw error;
   }
 };
 
@@ -295,10 +297,10 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   onCustomerNameChange,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [isRefiningWithAI, setIsRefiningWithAI] = useState(false);
+  const [isProcessingAI, setIsProcessingAI] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Busca SIMPLES e RÁPIDA em tempo real
+  // Busca manual rápida
   useEffect(() => {
     if (!inputText.trim() || catalog.length === 0) {
       onItemsChange([]);
@@ -310,7 +312,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     const processedItems: QuoteItem[] = parsedItems.map(item => {
       const cleanText = cleanTextForLearning(item.originalRequest);
       
-      // Tenta match aprendido primeiro
       const learnedProductId = findLearnedMatch(cleanText);
       if (learnedProductId) {
         const learnedProduct = catalog.find(c => c.id === learnedProductId);
@@ -319,7 +320,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
         }
       }
 
-      // Busca simples e rápida
       const simpleMatch = findSimpleMatch(item.originalRequest, catalog);
       if (simpleMatch) {
         return { ...item, catalogItem: simpleMatch, isLearned: false };
@@ -332,37 +332,20 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, catalog]);
 
-  // Refina com IA apenas quando clicar no botão
-  const handleRefineWithAI = async () => {
+  // Processa com Gemini AI
+  const handleProcessWithAI = async () => {
     if (!inputText.trim() || catalog.length === 0) return;
 
-    setIsRefiningWithAI(true);
-    const parsedItems = parseOrderText(inputText);
-    const processedItems: QuoteItem[] = [];
-
-    for (const item of parsedItems) {
-      const cleanText = cleanTextForLearning(item.originalRequest);
-      
-      const learnedProductId = findLearnedMatch(cleanText);
-      if (learnedProductId) {
-        const learnedProduct = catalog.find(c => c.id === learnedProductId);
-        if (learnedProduct) {
-          processedItems.push({ ...item, catalogItem: learnedProduct, isLearned: true });
-          continue;
-        }
-      }
-
-      // USA IA para encontrar
-      const aiMatch = await findMatchWithGemini(item.originalRequest, catalog);
-      if (aiMatch) {
-        processedItems.push({ ...item, catalogItem: aiMatch, isLearned: false });
-      } else {
-        processedItems.push({ ...item, catalogItem: null, isLearned: false });
-      }
+    setIsProcessingAI(true);
+    try {
+      const aiResults = await processWithGemini(inputText, catalog);
+      onItemsChange(aiResults);
+    } catch (error) {
+      alert('Erro ao processar com IA. Tente novamente.');
+      console.error(error);
+    } finally {
+      setIsProcessingAI(false);
     }
-
-    onItemsChange(processedItems);
-    setIsRefiningWithAI(false);
   };
 
   const handleClear = () => {
@@ -371,7 +354,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   };
 
   const lineCount = inputText.split('\n').filter(line => line.trim()).length;
-  const notFoundCount = inputText.split('\n').filter(line => line.trim()).length;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -382,25 +364,25 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
               <Zap className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800">Digitação Rápida</h3>
-              <p className="text-xs text-slate-600">Busca instantânea enquanto você digita</p>
+              <h3 className="font-bold text-slate-800">Digitação em Tempo Real</h3>
+              <p className="text-xs text-slate-600">Busca manual instantânea</p>
             </div>
           </div>
 
           <button
-            onClick={handleRefineWithAI}
-            disabled={!inputText.trim() || isRefiningWithAI}
-            className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md text-sm"
+            onClick={handleProcessWithAI}
+            disabled={!inputText.trim() || isProcessingAI}
+            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg text-sm"
           >
-            {isRefiningWithAI ? (
+            {isProcessingAI ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Refinando...
+                Processando...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                Refinar com IA
+                Processar com IA
               </>
             )}
           </button>
@@ -423,7 +405,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;- 400 mt 1,5 preto ou vermelho&#10;- 10 disjuntor bipolar 40a&#10;- 2 conector split bolt 16mm&#10;&#10;💡 Use o botão 'Refinar com IA' para melhorar matches"
+            placeholder="Digite ou cole a lista de materiais&#10;&#10;Busca Manual (instantânea):&#10;1 rolo cabo 16mm preto&#10;3 rolo fio 4mm (preto/azul/verde)&#10;&#10;Clique 'Processar com IA' para melhor precisão!"
             className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
             style={{ fontFamily: 'ui-monospace, monospace' }}
           />
@@ -441,7 +423,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <span>⚡ Busca instantânea • ✨ Refine com IA quando necessário</span>
+            <span>⚡ Busca manual: rápida mas pode errar • ✨ IA: mais precisa</span>
           </div>
           {inputText && (
             <span className="text-blue-600 font-medium">
