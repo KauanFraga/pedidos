@@ -90,7 +90,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
   return items;
 };
 
-// Função de busca fuzzy
+// Função de busca fuzzy MELHORADA
 const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
@@ -101,29 +101,56 @@ const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): Catalog
 
   let bestMatch: CatalogItem | null = null;
   let highestScore = 0;
+  const minScore = searchWords.length * 8; // Score mínimo proporcional ao número de palavras
 
   for (const item of catalogItems) {
     const itemText = cleanTextForLearning(item.description);
     let score = 0;
+    let matchedWords = 0;
 
-    // Pontos por cada palavra encontrada
+    // Verifica cada palavra da busca
     for (const word of searchWords) {
       if (itemText.includes(word)) {
-        score += word.length * 2;
+        matchedWords++;
+        score += word.length * 3; // Peso por tamanho da palavra
+        
+        // Bonus se a palavra aparece no início
+        if (itemText.startsWith(word)) {
+          score += 10;
+        }
       }
     }
 
-    // Bonus para match de frase completa
+    // REGRA CRÍTICA: Todas as palavras importantes devem estar presentes
+    const importantWordsMatched = matchedWords / searchWords.length;
+    if (importantWordsMatched < 0.6) {
+      // Se menos de 60% das palavras foram encontradas, ignora
+      continue;
+    }
+
+    // Bonus GRANDE para match de frase completa
     if (itemText.includes(normalizedSearch)) {
+      score += 200;
+    }
+
+    // Bonus se começa com o texto de busca exato
+    if (itemText.startsWith(normalizedSearch)) {
       score += 100;
     }
 
-    // Bonus se começa com o texto de busca
-    if (itemText.startsWith(normalizedSearch)) {
-      score += 50;
+    // Bonus se o tamanho é similar (evita matches muito diferentes)
+    const lengthDiff = Math.abs(normalizedSearch.length - itemText.length);
+    if (lengthDiff < 10) {
+      score += 30;
     }
 
-    if (score > highestScore && score >= 10) {
+    // Penaliza se tem muitas palavras extras (item muito longo)
+    const itemWords = itemText.split(/\s+/).length;
+    if (itemWords > searchWords.length * 3) {
+      score -= 20;
+    }
+
+    if (score > highestScore && score >= minScore) {
       highestScore = score;
       bestMatch = item;
     }
