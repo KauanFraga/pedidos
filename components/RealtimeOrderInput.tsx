@@ -1,16 +1,62 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
-import { CatalogItem, QuoteItem } from '../types';
-import { findLearnedMatch, cleanTextForLearning } from '../services/learningService';
 
-interface RealtimeOrderInputProps {
-  catalog: CatalogItem[];
-  onItemsChange: (items: QuoteItem[]) => void;
-  customerName: string;
-  onCustomerNameChange: (name: string) => void;
+// ============================================================================
+// TYPES (copiados de types.ts)
+// ============================================================================
+interface CatalogItem {
+  id: string;
+  description: string;
+  price: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-// Função para fazer o parse do texto de pedido
+interface QuoteItem {
+  id: string;
+  quantity: number;
+  originalRequest: string;
+  catalogItem: CatalogItem | null;
+  isLearned?: boolean;
+  conversionLog?: string;
+}
+
+// ============================================================================
+// LEARNING SERVICE (copiado de learningService.ts)
+// ============================================================================
+const STORAGE_KEY = 'kf_learned_matches';
+
+interface LearnedMatch {
+  originalText: string;
+  productId: string;
+  productDescription: string;
+  createdAt: string;
+}
+
+const cleanTextForLearning = (text: string): string => {
+  return text.trim().toLowerCase();
+};
+
+const getLearnedMatches = (): LearnedMatch[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    console.error("Error parsing learned matches", e);
+    return [];
+  }
+};
+
+const findLearnedMatch = (text: string): string | null => {
+  const matches = getLearnedMatches();
+  const normalized = cleanTextForLearning(text);
+  const match = matches.find(m => m.originalText === normalized);
+  return match ? match.productId : null;
+};
+
+// ============================================================================
+// PARSER FUNCTIONS
+// ============================================================================
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
   const lines = text.split('\n').filter(line => line.trim());
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
@@ -19,8 +65,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    // Regex para capturar quantidade no início (suporta decimais e várias unidades)
-    // Exemplos: "10 disjuntor", "2.5m cabo", "100 un tomada", "5x interruptor"
+    // Regex para capturar quantidade no início
     const qtyMatch = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|kg|g|l|r|rl|x)?\s*[-]?\s*(.+)/i);
     
     if (qtyMatch) {
@@ -45,7 +90,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
   return items;
 };
 
-// Função de busca fuzzy melhorada
+// Função de busca fuzzy
 const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
@@ -64,7 +109,7 @@ const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): Catalog
     // Pontos por cada palavra encontrada
     for (const word of searchWords) {
       if (itemText.includes(word)) {
-        score += word.length * 2; // Peso maior para palavras mais longas
+        score += word.length * 2;
       }
     }
 
@@ -78,7 +123,6 @@ const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): Catalog
       score += 50;
     }
 
-    // Só considera se atingiu pontuação mínima
     if (score > highestScore && score >= 10) {
       highestScore = score;
       bestMatch = item;
@@ -87,6 +131,16 @@ const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): Catalog
 
   return bestMatch;
 };
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+interface RealtimeOrderInputProps {
+  catalog: CatalogItem[];
+  onItemsChange: (items: QuoteItem[]) => void;
+  customerName: string;
+  onCustomerNameChange: (name: string) => void;
+}
 
 export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   catalog,
@@ -109,7 +163,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     const processedItems: QuoteItem[] = parsedItems.map(item => {
       const cleanText = cleanTextForLearning(item.originalRequest);
       
-      // Primeiro: tenta encontrar match aprendido pelo ID
+      // Primeiro: tenta encontrar match aprendido
       const learnedProductId = findLearnedMatch(cleanText);
       if (learnedProductId) {
         const learnedProduct = catalog.find(c => c.id === learnedProductId);
@@ -122,7 +176,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
         }
       }
 
-      // Segundo: tenta busca fuzzy no catálogo
+      // Segundo: busca fuzzy no catálogo
       const fuzzyMatch = findBestMatch(item.originalRequest, catalog);
       if (fuzzyMatch) {
         return {
@@ -141,7 +195,8 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     });
 
     onItemsChange(processedItems);
-  }, [inputText, catalog, onItemsChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputText, catalog]);
 
   const handleClear = () => {
     setInputText('');
@@ -163,7 +218,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
           </div>
         </div>
 
-        {/* Input do Nome do Cliente */}
         <div className="mb-3">
           <input
             type="text"
