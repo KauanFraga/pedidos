@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
@@ -8,14 +7,13 @@ import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
 import { CatalogManagerModal } from './components/CatalogManagerModal';
-import { DashboardModal } from './components/DashboardModal'; // Import DashboardModal
+import { DashboardModal } from './components/DashboardModal';
+import { RealtimeOrderInput } from './components/RealtimeOrderInput'; // NOVO!
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
-import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory, updateSavedQuote } from './services/historyService';
-import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save } from 'lucide-react'; // Import BarChart3 and Save
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, Settings, BarChart3, Save, Printer } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -26,12 +24,10 @@ function App() {
   // State
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogDate, setCatalogDate] = useState<string | null>(null);
-  const [inputText, setInputText] = useState('');
   const [customerName, setCustomerName] = useState(''); 
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [status, setStatus] = useState<QuoteStatus>(QuoteStatus.IDLE);
   
-  // Track the current ID of the quote being edited (to update history instead of creating duplicates)
   const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   
@@ -52,7 +48,7 @@ function App() {
   // Catalog Manager Modal State
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
 
-  // Dashboard Modal State - NEW
+  // Dashboard Modal State
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
 
   // Computed
@@ -77,13 +73,9 @@ function App() {
 
   // Effects
   useEffect(() => {
-    // Load learned matches
     setLearnedMatches(getLearnedMatches());
-
-    // Load History
     setQuoteHistory(getHistory());
 
-    // Load persisted catalog
     try {
         const savedCatalog = localStorage.getItem(CATALOG_STORAGE_KEY);
         const savedDate = localStorage.getItem(CATALOG_DATE_KEY);
@@ -122,8 +114,8 @@ function App() {
         localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(uploadedCatalog));
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
-        console.error("Failed to save catalog to storage (likely quota exceeded)", e);
-        alert("Atenção: O catálogo é muito grande para ser salvo no navegador. Ele funcionará agora, mas você precisará enviá-lo novamente se recarregar a página.");
+        console.error("Failed to save catalog to storage", e);
+        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
     }
   };
 
@@ -137,7 +129,22 @@ function App() {
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
         console.error("Failed to save catalog to storage", e);
-        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
+    }
+  };
+
+  // NOVO: Handler para quando os itens mudam no RealtimeOrderInput
+  const handleItemsChange = (newItems: QuoteItem[]) => {
+    setItems(newItems);
+    
+    // Salvar aprendizados automáticos
+    newItems.forEach(item => {
+      if (item.catalogItem && !item.isLearned) {
+        saveLearnedMatch(item.originalRequest, item.catalogItem);
+      }
+    });
+    
+    if (newItems.length > 0) {
+      setStatus(QuoteStatus.COMPLETE);
     }
   };
 
@@ -146,100 +153,16 @@ function App() {
       if (items.length === 0) return;
 
       if (currentQuoteId) {
-          // Update existing
           updateSavedQuote(currentQuoteId, {
               customerName: customerName,
               items: items,
           });
       } else {
-          // Create new
-          const newQuote = saveQuoteToHistory(customerName, items, inputText);
+          const newQuote = saveQuoteToHistory(customerName, items, '');
           setCurrentQuoteId(newQuote.id);
       }
       setLastSavedTime(new Date().toLocaleTimeString());
       refreshHistory();
-  };
-
-  const handleProcess = async () => {
-    if (!inputText.trim() || catalog.length === 0) {
-      alert("Por favor, carregue o catálogo e digite os itens.");
-      return;
-    }
-
-    setStatus(QuoteStatus.PROCESSING);
-    try {
-      const lines = inputText.split('\n').filter(l => l.trim() !== '');
-      
-      const finalItems: QuoteItem[] = new Array(lines.length);
-      const linesToProcess: { text: string, originalIndex: number }[] = [];
-
-      lines.forEach((line, idx) => {
-         const cleanedInput = cleanTextForLearning(line);
-         const matchId = findLearnedMatch(cleanedInput);
-         let foundLocally = false;
-
-         if (matchId) {
-            const catalogItem = catalog.find(c => c.id === matchId);
-            if (catalogItem) {
-                foundLocally = true;
-                
-                let quantity = 1;
-                const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)/);
-                if (qtyMatch) {
-                    const q = parseFloat(qtyMatch[1].replace(',', '.'));
-                    if (!isNaN(q) && q > 0) quantity = q;
-                }
-
-                const { newQuantity, log } = applyConversions(line, quantity);
-
-                finalItems[idx] = {
-                    id: crypto.randomUUID(),
-                    quantity: newQuantity,
-                    originalRequest: line,
-                    catalogItem: catalogItem,
-                    isLearned: true,
-                    conversionLog: log
-                };
-            }
-         }
-         
-         if (!foundLocally) {
-             linesToProcess.push({ text: line, originalIndex: idx });
-         }
-      });
-
-      if (linesToProcess.length > 0) {
-          const textToProcess = linesToProcess.map(l => l.text).join('\n');
-          const result = await processOrderWithGemini(catalog, textToProcess);
-          
-          result.items.forEach((item, resultIdx) => {
-              if (resultIdx < linesToProcess.length) {
-                  const originalIndex = linesToProcess[resultIdx].originalIndex;
-                  finalItems[originalIndex] = item;
-
-                  if (item.catalogItem) {
-                    saveLearnedMatch(item.originalRequest, item.catalogItem);
-                    item.isLearned = true;
-                  }
-              }
-          });
-          
-          refreshLearnedMatches();
-      }
-
-      const processedItems = finalItems.filter(Boolean);
-      setItems(processedItems);
-      setStatus(QuoteStatus.COMPLETE);
-      
-      // Reset ID because it's a "new generation" unless explicitly saved or loaded
-      setCurrentQuoteId(null);
-      setLastSavedTime(null);
-      
-    } catch (error) {
-      console.error(error);
-      setStatus(QuoteStatus.ERROR);
-      alert("Erro ao processar com IA. Verifique sua chave de API ou tente novamente.");
-    }
   };
 
   const handleClear = () => {
@@ -247,7 +170,6 @@ function App() {
         if (!confirm("Deseja limpar o orçamento atual? Dados não salvos serão perdidos.")) return;
     }
     setItems([]);
-    setInputText('');
     setCustomerName(''); 
     setStatus(QuoteStatus.IDLE);
     setCurrentQuoteId(null);
@@ -295,7 +217,6 @@ function App() {
 
   const handleLoadHistory = (quote: SavedQuote) => {
       setItems(quote.items);
-      setInputText(quote.originalInputText);
       setCustomerName(quote.customerName);
       setCurrentQuoteId(quote.id); 
       setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
@@ -324,7 +245,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col">
-      {/* Header */}
+      {/* Header - MANTIDO IGUAL */}
       <header className="bg-slate-900 text-white shadow-lg sticky top-0 z-50 print:hidden">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -336,7 +257,6 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
-             {/* Dashboard Button */}
              <button 
                 onClick={() => setIsDashboardModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -383,7 +303,7 @@ function App() {
       <main className="container mx-auto px-4 py-8 flex-1 print:p-0 print:w-full">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden">
           
-          {/* Left Column: Input */}
+          {/* Left Column: Upload Catálogo */}
           <div className="lg:col-span-4 space-y-6">
             <FileUploader 
               onUpload={handleUpload} 
@@ -391,62 +311,12 @@ function App() {
               savedCount={catalog.length} 
               onEditCatalog={() => setIsCatalogModalOpen(true)}
             />
-
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
-              <h2 className="text-lg font-semibold text-slate-800 mb-2 flex items-center gap-2">
-                2. Pedido do Cliente
-              </h2>
-              
-              <div className="mb-4">
-                 <div className="relative">
-                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                     <input 
-                        type="text"
-                        placeholder="Nome do cliente (opcional)"
-                        value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none text-slate-700"
-                     />
-                 </div>
-              </div>
-
-              <p className="text-sm text-slate-500 mb-2">
-                Cole a lista do WhatsApp ou E-mail abaixo.
-              </p>
-              
-              <textarea
-                className="flex-1 w-full p-4 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-yellow-400 outline-none text-slate-700 font-mono text-sm"
-                placeholder="Ex:&#10;200m cabo flexivel 2.5 preto&#10;10 tomadas 20a tramontina&#10;5 disjuntor din 25a"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-              />
-
-              <div className="mt-4">
-                <button
-                  onClick={handleProcess}
-                  disabled={status === QuoteStatus.PROCESSING || catalog.length === 0}
-                  className="w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all transform active:scale-[0.99] flex items-center justify-center gap-2"
-                >
-                  {status === QuoteStatus.PROCESSING ? (
-                    <>
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                      Processando IA...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-5 h-5" />
-                      Gerar Orçamento
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
           </div>
 
-          {/* Right Column: Results */}
+          {/* Right Column: Realtime Input + Results */}
           <div className="lg:col-span-8 space-y-6">
             
-            {/* Stats / Summary Header */}
+            {/* Stats / Summary Header - MANTIDO */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between items-end gap-6 relative overflow-hidden">
                
                <div className="absolute top-0 left-0 p-6 flex items-center gap-4 z-10">
@@ -527,8 +397,17 @@ function App() {
                )}
             </div>
 
+            {/* 🆕 NOVO COMPONENTE EM TEMPO REAL! */}
+            <RealtimeOrderInput
+              catalog={catalog}
+              onItemsChange={handleItemsChange}
+              customerName={customerName}
+              onCustomerNameChange={setCustomerName}
+            />
+
             <NotFoundItems items={notFoundItemsList} />
 
+            {/* Tabela de Itens - MANTIDA */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 className="font-bold text-slate-700">Itens do Pedido</h3>
@@ -559,7 +438,7 @@ function App() {
                           <div className="flex flex-col items-center">
                             <Sparkles className="w-12 h-12 mb-4 opacity-20" />
                             <p>Nenhum item processado ainda.</p>
-                            <p className="text-sm">Carregue um catálogo e envie um pedido para começar.</p>
+                            <p className="text-sm">Digite os itens acima para ver os valores em tempo real.</p>
                           </div>
                         </td>
                       </tr>
@@ -584,6 +463,7 @@ function App() {
           </div>
         </div>
 
+        {/* Modais - MANTIDOS */}
         <LearningModal 
             isOpen={isLearningModalOpen} 
             onClose={() => setIsLearningModalOpen(false)}
@@ -620,7 +500,6 @@ function App() {
             totalValue={totalValue}
         />
 
-        {/* NEW: Dashboard Modal */}
         <DashboardModal 
             isOpen={isDashboardModalOpen}
             onClose={() => setIsDashboardModalOpen(false)}
