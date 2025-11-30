@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Sparkles } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -55,10 +55,8 @@ const findLearnedMatch = (text: string): string | null => {
 };
 
 // ============================================================================
-// PARSER FUNCTIONS COM INTELIGÊNCIA PARA CABOS
+// PARSER COM CONVERSÕES
 // ============================================================================
-
-// Mapeia sinônimos
 const normalizeItemType = (text: string): string => {
   const lower = text.toLowerCase();
   if (lower.includes('fio') || lower.includes('cabo') || lower.includes('rolo')) {
@@ -67,37 +65,29 @@ const normalizeItemType = (text: string): string => {
   return text;
 };
 
-// Extrai cores de uma string (AZ, VM, PT, BR, etc)
 const extractColors = (text: string): string[] => {
   const colorPattern = /\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)\b/gi;
   const matches = text.match(colorPattern);
   if (!matches) return [];
-  
-  // Remove duplicatas e retorna
   return [...new Set(matches.map(c => c.toUpperCase()))];
 };
 
-// Divide linha com múltiplas cores em múltiplos itens
 const splitMultipleColors = (line: string, baseQty: number): { qty: number; text: string; }[] => {
   const colors = extractColors(line);
-  
-  // Se tem separador "/" ou "e" entre cores, divide
   if (colors.length >= 2 && (line.includes('/') || /\be\b/i.test(line))) {
     return colors.map(color => ({
       qty: baseQty / colors.length,
       text: line.replace(/\b(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)([/,\se]+)(az|vm|pt|br|am|vd|rs|pr|lj|cx|vr|amarelo|azul|vermelho|preto|branco|verde|rosa|laranja|cinza|marrom)/gi, color)
     }));
   }
-  
   return [{ qty: baseQty, text: line }];
 };
 
-// Converte ROLO em metros
 const convertRoloToMeters = (qty: number, text: string): { qty: number; log: string } => {
   const lower = text.toLowerCase();
   if (lower.includes('rolo')) {
     return {
-      qty: qty * 100, // 1 rolo = 100 metros
+      qty: qty * 100,
       log: `${qty} rolo(s) → ${qty * 100}m`
     };
   }
@@ -107,25 +97,20 @@ const convertRoloToMeters = (qty: number, text: string): { qty: number; log: str
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
-  
-  let currentPrefix = ''; // Para linhas hierárquicas (ex: "2,5mm:" seguido de cores)
+  let currentPrefix = '';
 
   lines.forEach((line, index) => {
-    // Detecta linha de prefixo (ex: "cabos 1,5mm:" ou "2,5mm:")
     if (line.endsWith(':')) {
       currentPrefix = line.replace(/:$/, '').trim();
       return;
     }
 
-    // Normaliza tipos (fio → cabo)
     line = normalizeItemType(line);
 
-    // Se tem prefixo ativo, concatena
     if (currentPrefix && !line.match(/^\d/)) {
       line = `${currentPrefix} ${line}`;
     }
 
-    // Extrai quantidade
     const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
     
     let baseQty = 1;
@@ -136,10 +121,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
       description = qtyMatch[2].trim();
     }
 
-    // Converte ROLO em metros
     const { qty: finalQty, log: conversionLog } = convertRoloToMeters(baseQty, description);
-
-    // Divide por cores se necessário
     const splitItems = splitMultipleColors(description, finalQty);
 
     splitItems.forEach((split, splitIndex) => {
@@ -151,7 +133,6 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
       });
     });
 
-    // Limpa prefixo após uso se não terminou com ":"
     if (currentPrefix && line.match(/^\d/)) {
       currentPrefix = '';
     }
@@ -161,113 +142,65 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
 };
 
 // ============================================================================
-// BUSCA ULTRA RIGOROSA - SÓ ACEITA MATCHES MUITO PRECISOS
+// IA MATCHING - USA CLAUDE PARA ENCONTRAR O MELHOR PRODUTO
 // ============================================================================
-
-// Extrai características chave (bitolas, amperagens, etc)
-const extractKeyFeatures = (text: string): string[] => {
-  const features: string[] = [];
-  
-  // Bitolas de cabo (ex: 2,5mm, 16mm, 2.5mm)
-  const bitolas = text.match(/\d+[.,]?\d*\s*mm/gi);
-  if (bitolas) features.push(...bitolas.map(b => b.toLowerCase().replace(/\s/g, '')));
-  
-  // Amperagens (ex: 10a, 40a, 60a)
-  const amperes = text.match(/\d+\s*a\b/gi);
-  if (amperes) features.push(...amperes.map(a => a.toLowerCase().replace(/\s/g, '')));
-  
-  // Cores abreviadas
-  const coresAbrev = text.match(/\b(az|vm|pt|br|am|vd|rs|pr|lj|cx)\b/gi);
-  if (coresAbrev) features.push(...coresAbrev.map(c => c.toLowerCase()));
-  
-  return features;
-};
-
-const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
+const findMatchWithAI = async (searchText: string, catalogItems: CatalogItem[]): Promise<CatalogItem | null> => {
   if (!searchText || catalogItems.length === 0) return null;
 
-  const normalizedSearch = normalizeItemType(cleanTextForLearning(searchText));
-  const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length >= 2);
-  const searchFeatures = extractKeyFeatures(searchText);
+  // Limita a 50 itens mais relevantes para não estourar o contexto
+  const relevantItems = catalogItems.slice(0, 100);
 
-  if (searchWords.length === 0) return null;
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [
+          {
+            role: "user",
+            content: `Você é um especialista em materiais elétricos. Sua tarefa é encontrar o produto EXATO do catálogo que corresponde ao pedido do cliente.
 
-  let bestMatch: CatalogItem | null = null;
-  let highestScore = 0;
-  const minScore = Math.max(30, searchWords.length * 10); // Score mínimo mais alto
+PEDIDO DO CLIENTE: "${searchText}"
 
-  for (const item of catalogItems) {
-    const itemText = normalizeItemType(cleanTextForLearning(item.description));
-    const itemFeatures = extractKeyFeatures(item.description);
-    let score = 0;
-    let matchedWords = 0;
-    let criticalFeaturesMissing = false;
+CATÁLOGO DISPONÍVEL:
+${relevantItems.map((item, idx) => `${idx}. ${item.description}`).join('\n')}
 
-    // REGRA CRÍTICA 1: Se busca tem características (bitola, amperagem), DEVE ter no item
-    if (searchFeatures.length > 0) {
-      let featuresMatched = 0;
-      for (const feature of searchFeatures) {
-        if (itemFeatures.some(f => f === feature || itemText.includes(feature))) {
-          featuresMatched++;
-          score += 30; // MUITO peso para características corretas
-        }
-      }
-      
-      // Se não achou TODAS as características, rejeita
-      if (featuresMatched < searchFeatures.length) {
-        continue; // PRÓXIMO ITEM
-      }
+INSTRUÇÕES:
+- Analise o pedido e encontre o produto que MELHOR corresponde
+- Considere sinônimos: "fio" = "cabo", "split bolt" = "conector", etc
+- Considere especificações técnicas: bitolas (2,5mm, 16mm), amperagens (10a, 40a), cores
+- Se o pedido mencionar características que o produto deve ter (ex: 2,5mm azul), o produto DEVE ter essas características
+- Se não houver match perfeito, retorne o mais próximo possível
+- Se realmente não houver nenhum match aceitável, retorne "NENHUM"
+
+RESPONDA APENAS COM O NÚMERO DO ÍNDICE do produto correspondente (ex: "5") ou "NENHUM".
+Não explique, apenas o número ou "NENHUM".`
+          }
+        ],
+      })
+    });
+
+    const data = await response.json();
+    const resultText = data.content?.[0]?.text?.trim();
+
+    if (!resultText || resultText === "NENHUM") {
+      return null;
     }
 
-    // REGRA CRÍTICA 2: Palavras-chave principais devem estar presentes
-    const mainWords = searchWords.filter(w => w.length >= 3); // Só palavras importantes
-    for (const word of mainWords) {
-      if (itemText.includes(word)) {
-        matchedWords++;
-        score += word.length * 5;
-      }
+    const index = parseInt(resultText);
+    if (!isNaN(index) && index >= 0 && index < relevantItems.length) {
+      return relevantItems[index];
     }
 
-    // Se não achou pelo menos 70% das palavras principais, rejeita
-    if (mainWords.length > 0 && matchedWords / mainWords.length < 0.7) {
-      continue;
-    }
-
-    // BONUS GRANDES para matches perfeitos
-    if (itemText.includes(normalizedSearch)) {
-      score += 300;
-    }
-
-    if (itemText.startsWith(normalizedSearch)) {
-      score += 150;
-    }
-
-    // BONUS para ordem correta das palavras
-    let lastIndex = -1;
-    let inOrder = true;
-    for (const word of searchWords) {
-      const idx = itemText.indexOf(word);
-      if (idx > lastIndex) {
-        lastIndex = idx;
-      } else if (idx !== -1) {
-        inOrder = false;
-      }
-    }
-    if (inOrder) score += 50;
-
-    // PENALIZA fortemente se item tem características que a busca não tem
-    const extraFeatures = itemFeatures.filter(f => !searchFeatures.includes(f));
-    if (extraFeatures.length > 2) {
-      score -= 50; // Provavelmente é produto diferente
-    }
-
-    if (score > highestScore && score >= minScore) {
-      highestScore = score;
-      bestMatch = item;
-    }
+    return null;
+  } catch (error) {
+    console.error("AI matching error:", error);
+    return null;
   }
-
-  return bestMatch;
 };
 
 // ============================================================================
@@ -287,7 +220,9 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   onCustomerNameChange,
 }) => {
   const [inputText, setInputText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!inputText.trim() || catalog.length === 0) {
@@ -295,40 +230,61 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
       return;
     }
 
-    const parsedItems = parseOrderText(inputText);
-    
-    const processedItems: QuoteItem[] = parsedItems.map(item => {
-      const cleanText = cleanTextForLearning(item.originalRequest);
+    // Limpa timeout anterior
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+    }
+
+    // Aguarda 800ms após parar de digitar para processar
+    processingTimeoutRef.current = setTimeout(async () => {
+      setIsProcessing(true);
       
-      const learnedProductId = findLearnedMatch(cleanText);
-      if (learnedProductId) {
-        const learnedProduct = catalog.find(c => c.id === learnedProductId);
-        if (learnedProduct) {
-          return {
+      const parsedItems = parseOrderText(inputText);
+      const processedItems: QuoteItem[] = [];
+
+      for (const item of parsedItems) {
+        const cleanText = cleanTextForLearning(item.originalRequest);
+        
+        // Primeiro: tenta match aprendido
+        const learnedProductId = findLearnedMatch(cleanText);
+        if (learnedProductId) {
+          const learnedProduct = catalog.find(c => c.id === learnedProductId);
+          if (learnedProduct) {
+            processedItems.push({
+              ...item,
+              catalogItem: learnedProduct,
+              isLearned: true,
+            });
+            continue;
+          }
+        }
+
+        // Segundo: usa IA para encontrar o melhor match
+        const aiMatch = await findMatchWithAI(item.originalRequest, catalog);
+        if (aiMatch) {
+          processedItems.push({
             ...item,
-            catalogItem: learnedProduct,
-            isLearned: true,
-          };
+            catalogItem: aiMatch,
+            isLearned: false,
+          });
+        } else {
+          processedItems.push({
+            ...item,
+            catalogItem: null,
+            isLearned: false,
+          });
         }
       }
 
-      const fuzzyMatch = findBestMatch(item.originalRequest, catalog);
-      if (fuzzyMatch) {
-        return {
-          ...item,
-          catalogItem: fuzzyMatch,
-          isLearned: false,
-        };
+      onItemsChange(processedItems);
+      setIsProcessing(false);
+    }, 800);
+
+    return () => {
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
       }
-
-      return {
-        ...item,
-        catalogItem: null,
-        isLearned: false,
-      };
-    });
-
-    onItemsChange(processedItems);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputText, catalog]);
 
@@ -341,14 +297,21 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-purple-50 to-blue-50">
         <div className="flex items-center gap-2 mb-3">
-          <div className="bg-blue-500 p-2 rounded-lg">
-            <Search className="w-5 h-5 text-white" />
+          <div className="bg-gradient-to-br from-purple-500 to-blue-500 p-2 rounded-lg">
+            <Sparkles className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <h3 className="font-bold text-slate-800">Digitação em Tempo Real</h3>
-            <p className="text-xs text-slate-600">Digite os itens e veja os valores instantaneamente</p>
+          <div className="flex-1">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              Digitação com IA
+              {isProcessing && (
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full animate-pulse">
+                  Processando...
+                </span>
+              )}
+            </h3>
+            <p className="text-xs text-slate-600">Sistema inteligente identifica produtos automaticamente</p>
           </div>
         </div>
 
@@ -358,7 +321,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             value={customerName}
             onChange={(e) => onCustomerNameChange(e.target.value)}
             placeholder="Nome do cliente (opcional)"
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
           />
         </div>
       </div>
@@ -369,9 +332,10 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;2 rolos cabo 2,5mm azul (converte automaticamente para 200m)&#10;10 disjuntor bipolar 40a&#10;200m cabo 1,5mm AZ/VM (divide em 2 itens)&#10;&#10;cabos 2,5mm:&#10;  150m preto&#10;  250m azul"
-            className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
+            placeholder="Digite os itens do pedido (um por linha)&#10;&#10;Exemplos:&#10;2 rolos cabo 2,5mm azul&#10;10 disjuntor bipolar 40a&#10;2 conector split bolt 16mm&#10;400m fio 16mm az&#10;&#10;A IA identifica automaticamente o produto correto! ✨"
+            className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none font-mono text-sm"
             style={{ fontFamily: 'ui-monospace, monospace' }}
+            disabled={isProcessing}
           />
           
           {inputText && (
@@ -387,10 +351,10 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
         <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-4">
-            <span>💡 Rolos são convertidos automaticamente (1 rolo = 100m)</span>
+            <span>✨ Powered by Claude AI - Reconhece sinônimos e variações automaticamente</span>
           </div>
           {inputText && (
-            <span className="text-blue-600 font-medium">
+            <span className="text-purple-600 font-medium">
               {lineCount} {lineCount === 1 ? 'linha' : 'linhas'}
             </span>
           )}
