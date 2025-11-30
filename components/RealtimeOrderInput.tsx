@@ -1,21 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
-
-// Types
-interface CatalogItem {
-  id: string;
-  code: string;
-  description: string;
-  price: number;
-}
-
-interface QuoteItem {
-  id: string;
-  originalRequest: string;
-  quantity: number;
-  catalogItem: CatalogItem | null;
-  isLearned: boolean;
-}
+import { CatalogItem, QuoteItem } from '../types';
+import { findLearnedMatch, cleanTextForLearning } from '../services/learningService';
 
 interface RealtimeOrderInputProps {
   catalog: CatalogItem[];
@@ -24,42 +10,7 @@ interface RealtimeOrderInputProps {
   onCustomerNameChange: (name: string) => void;
 }
 
-// Learning Service Functions
-const LEARNING_STORAGE_KEY = 'orcafacil_aprendizados';
-
-interface LearnedMatch {
-  text: string;
-  catalogItem: CatalogItem;
-  createdAt: string;
-}
-
-const getLearnedMatches = (): LearnedMatch[] => {
-  try {
-    const stored = localStorage.getItem(LEARNING_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
-
-const cleanTextForLearning = (text: string): string => {
-  return text
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^\w\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-const findLearnedMatch = (text: string): CatalogItem | null => {
-  const cleaned = cleanTextForLearning(text);
-  const matches = getLearnedMatches();
-  const found = matches.find(m => cleanTextForLearning(m.text) === cleaned);
-  return found ? found.catalogItem : null;
-};
-
-// Parser Functions
+// Função para fazer o parse do texto de pedido
 const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] => {
   const lines = text.split('\n').filter(line => line.trim());
   const items: Omit<QuoteItem, 'catalogItem' | 'isLearned'>[] = [];
@@ -68,8 +19,9 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    // Regex para capturar quantidade no início
-    const qtyMatch = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*[x*]?\s*(.+)/i);
+    // Regex para capturar quantidade no início (suporta decimais e várias unidades)
+    // Exemplos: "10 disjuntor", "2.5m cabo", "100 un tomada", "5x interruptor"
+    const qtyMatch = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|kg|g|l|r|rl|x)?\s*[-]?\s*(.+)/i);
     
     if (qtyMatch) {
       const qty = parseFloat(qtyMatch[1].replace(',', '.'));
@@ -81,7 +33,7 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
         quantity: qty,
       });
     } else {
-      // Sem quantidade, assume 1
+      // Sem quantidade detectada, assume 1
       items.push({
         id: `item-${Date.now()}-${index}`,
         originalRequest: trimmed,
@@ -93,6 +45,49 @@ const parseOrderText = (text: string): Omit<QuoteItem, 'catalogItem' | 'isLearne
   return items;
 };
 
+// Função de busca fuzzy melhorada
+const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
+  if (!searchText || catalogItems.length === 0) return null;
+
+  const normalizedSearch = cleanTextForLearning(searchText);
+  const searchWords = normalizedSearch.split(/\s+/).filter(w => w.length >= 2);
+
+  if (searchWords.length === 0) return null;
+
+  let bestMatch: CatalogItem | null = null;
+  let highestScore = 0;
+
+  for (const item of catalogItems) {
+    const itemText = cleanTextForLearning(item.description);
+    let score = 0;
+
+    // Pontos por cada palavra encontrada
+    for (const word of searchWords) {
+      if (itemText.includes(word)) {
+        score += word.length * 2; // Peso maior para palavras mais longas
+      }
+    }
+
+    // Bonus para match de frase completa
+    if (itemText.includes(normalizedSearch)) {
+      score += 100;
+    }
+
+    // Bonus se começa com o texto de busca
+    if (itemText.startsWith(normalizedSearch)) {
+      score += 50;
+    }
+
+    // Só considera se atingiu pontuação mínima
+    if (score > highestScore && score >= 10) {
+      highestScore = score;
+      bestMatch = item;
+    }
+  }
+
+  return bestMatch;
+};
+
 export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   catalog,
   onItemsChange,
@@ -101,47 +96,6 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Função de busca fuzzy
-  const findBestMatch = (searchText: string, catalogItems: CatalogItem[]): CatalogItem | null => {
-    if (!searchText || catalogItems.length === 0) return null;
-
-    const normalizedSearch = searchText.toLowerCase().trim();
-    const searchWords = normalizedSearch.split(/\s+/);
-
-    let bestMatch: CatalogItem | null = null;
-    let highestScore = 0;
-
-    for (const item of catalogItems) {
-      const itemText = `${item.code} ${item.description}`.toLowerCase();
-      let score = 0;
-
-      // Pontos por palavras encontradas
-      for (const word of searchWords) {
-        if (word.length < 2) continue;
-        if (itemText.includes(word)) {
-          score += word.length;
-        }
-      }
-
-      // Pontos extra se o código está presente
-      if (item.code && normalizedSearch.includes(item.code.toLowerCase())) {
-        score += 50;
-      }
-
-      // Pontos extra para match exato
-      if (itemText.includes(normalizedSearch)) {
-        score += 100;
-      }
-
-      if (score > highestScore && score > 5) {
-        highestScore = score;
-        bestMatch = item;
-      }
-    }
-
-    return bestMatch;
-  };
 
   // Processa o texto em tempo real
   useEffect(() => {
@@ -155,18 +109,21 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     const processedItems: QuoteItem[] = parsedItems.map(item => {
       const cleanText = cleanTextForLearning(item.originalRequest);
       
-      // Primeiro tenta match aprendido
-      const learnedMatch = findLearnedMatch(cleanText);
-      if (learnedMatch) {
-        return {
-          ...item,
-          catalogItem: learnedMatch,
-          isLearned: true,
-        };
+      // Primeiro: tenta encontrar match aprendido pelo ID
+      const learnedProductId = findLearnedMatch(cleanText);
+      if (learnedProductId) {
+        const learnedProduct = catalog.find(c => c.id === learnedProductId);
+        if (learnedProduct) {
+          return {
+            ...item,
+            catalogItem: learnedProduct,
+            isLearned: true,
+          };
+        }
       }
 
-      // Depois tenta match fuzzy no catálogo
-      const fuzzyMatch = findBestMatch(cleanText, catalog);
+      // Segundo: tenta busca fuzzy no catálogo
+      const fuzzyMatch = findBestMatch(item.originalRequest, catalog);
       if (fuzzyMatch) {
         return {
           ...item,
@@ -190,6 +147,8 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     setInputText('');
     onItemsChange([]);
   };
+
+  const lineCount = inputText.split('\n').filter(line => line.trim()).length;
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -222,7 +181,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
             ref={textareaRef}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Digite os itens do pedido (um por linha)&#10;Exemplos:&#10;2 disjuntor 10a&#10;5 tomada 2p+t&#10;10m cabo 2.5mm"
+            placeholder="Digite os itens do pedido (um por linha)&#10;Exemplos:&#10;2 disjuntor 10a&#10;5 tomada 2p+t&#10;10m cabo 2.5mm&#10;100 un interruptor simples"
             className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
             style={{ fontFamily: 'ui-monospace, monospace' }}
           />
@@ -244,7 +203,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
           </div>
           {inputText && (
             <span className="text-blue-600 font-medium">
-              {inputText.split('\n').filter(line => line.trim()).length} linhas
+              {lineCount} {lineCount === 1 ? 'linha' : 'linhas'}
             </span>
           )}
         </div>
