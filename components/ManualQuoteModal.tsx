@@ -1,149 +1,150 @@
-import React, { useState } from 'react';
-import { CatalogItem, QuoteItem } from '../types';
-import { RealtimeOrderInput } from './RealtimeOrderInput';
-import { ExportModal } from './ExportModal';
-import { X, Sparkles, Printer } from 'lucide-react';
+
+import React, { useState, useMemo } from 'react';
+import { CatalogItem } from '../types';
+import { X, Search, Plus, Check } from 'lucide-react';
 import { formatCurrency } from '../utils/parser';
 
 interface ManualQuoteModalProps {
   isOpen: boolean;
   onClose: () => void;
   catalog: CatalogItem[];
+  onAddItem: (item: CatalogItem, quantity: number) => void;
 }
 
-export const ManualQuoteModal: React.FC<ManualQuoteModalProps> = ({ isOpen, onClose, catalog }) => {
-  const [quoteItems, setQuoteItems] = useState<QuoteItem[]>([]);
-  const [customerName, setCustomerName] = useState('');
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+export const ManualQuoteModal: React.FC<ManualQuoteModalProps> = ({
+  isOpen,
+  onClose,
+  catalog,
+  onAddItem
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedItem, setSelectedItem] = useState<CatalogItem | null>(null);
+  const [quantity, setQuantity] = useState(1);
+
+  // Filter catalog based on search
+  const filteredCatalog = useMemo(() => {
+    if (!searchTerm) return [];
+    const lowerTerm = searchTerm.toLowerCase();
+    return catalog
+      .filter(item => item.description.toLowerCase().includes(lowerTerm))
+      .slice(0, 50); // Limit results for performance
+  }, [catalog, searchTerm]);
+
+  const handleAdd = () => {
+    if (selectedItem && quantity > 0) {
+      onAddItem(selectedItem, quantity);
+      // Reset for next item, keep modal open for ease of use
+      setSelectedItem(null);
+      setQuantity(1);
+      setSearchTerm('');
+      alert('Item adicionado ao orçamento!');
+    }
+  };
 
   if (!isOpen) return null;
 
-  const totalValue = quoteItems.reduce((sum, item) => {
-    return sum + (item.quantity * (item.catalogItem?.price || 0));
-  }, 0);
-
-  const foundItemsCount = quoteItems.filter(item => item.catalogItem !== null).length;
-
-  const handleGenerateQuote = () => {
-    if (!customerName.trim()) {
-      alert('Por favor, preencha o nome do cliente.');
-      return;
-    }
-
-    if (quoteItems.length === 0) {
-      alert('Adicione pelo menos um item ao orçamento.');
-      return;
-    }
-
-    setIsExportModalOpen(true);
-  };
-
-  const handleClose = () => {
-    if (quoteItems.length > 0) {
-      if (confirm('Deseja fechar? Os dados do orçamento manual serão perdidos.')) {
-        setQuoteItems([]);
-        setCustomerName('');
-        onClose();
-      }
-    } else {
-      onClose();
-    }
-  };
-
   return (
-    <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/90 backdrop-blur-sm p-4 overflow-y-auto">
-        <div className="bg-slate-50 w-full max-w-7xl rounded-2xl shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
-          
-          {/* Header */}
-          <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white px-6 py-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="bg-yellow-400 p-2 rounded-lg">
-                <Sparkles className="w-6 h-6 text-slate-900" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold">Orçamento Manual</h2>
-                <p className="text-sm text-slate-300">Digite os itens e veja os valores em tempo real</p>
-              </div>
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+        
+        {/* Header */}
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <Plus className="w-6 h-6 text-blue-600" />
+            Adicionar Item Manualmente
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-200 rounded">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
 
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-xs text-slate-300 uppercase">Valor Total</p>
-                <p className="text-2xl font-bold text-yellow-400">{formatCurrency(totalValue)}</p>
+        {/* Content */}
+        <div className="p-6 flex-1 overflow-y-auto">
+           
+           {/* Search Section */}
+           <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Buscar Produto</label>
+              <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input 
+                    autoFocus
+                    type="text" 
+                    placeholder="Digite o nome do produto..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                  />
               </div>
-              <button 
-                onClick={handleClose}
-                className="text-slate-300 hover:text-white p-2 hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-          </div>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto p-6">
-            {catalog.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-slate-500">
-                  <Sparkles className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                  <p className="text-lg font-semibold mb-2">Catálogo não carregado</p>
-                  <p className="text-sm">Por favor, carregue o catálogo na tela principal primeiro.</p>
-                </div>
-              </div>
-            ) : (
-              <RealtimeOrderInput
-                catalog={catalog}
-                onItemsChange={setQuoteItems}
-                customerName={customerName}
-                onCustomerNameChange={setCustomerName}
-              />
-            )}
-          </div>
+              {/* Results List */}
+              {searchTerm && (
+                  <div className="mt-2 border border-slate-200 rounded-lg max-h-60 overflow-y-auto bg-white shadow-sm">
+                      {filteredCatalog.length === 0 ? (
+                          <div className="p-4 text-center text-slate-500 text-sm italic">Nenhum produto encontrado.</div>
+                      ) : (
+                          <ul>
+                              {filteredCatalog.map(item => (
+                                  <li 
+                                    key={item.id} 
+                                    onClick={() => { setSelectedItem(item); setSearchTerm(''); }}
+                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-100 last:border-0 flex justify-between items-center transition-colors"
+                                  >
+                                      <span className="font-medium text-slate-700">{item.description}</span>
+                                      <span className="text-slate-500 font-mono text-sm">{formatCurrency(item.price)}</span>
+                                  </li>
+                              ))}
+                          </ul>
+                      )}
+                  </div>
+              )}
+           </div>
 
-          {/* Footer */}
-          <div className="bg-white border-t-2 border-slate-200 px-6 py-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-slate-600">
-                <span className="font-semibold">{quoteItems.length}</span> itens
-                {quoteItems.length > 0 && (
-                  <>
-                    {' • '}
-                    <span className="text-green-600 font-semibold">{foundItemsCount}</span> encontrados
-                  </>
-                )}
-              </div>
-            </div>
+           {/* Selected Item Details */}
+           {selectedItem ? (
+               <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 animate-in fade-in slide-in-from-top-2">
+                   <div className="flex justify-between items-start mb-4">
+                       <div>
+                           <h4 className="font-bold text-blue-900 text-lg">{selectedItem.description}</h4>
+                           <p className="text-blue-700 text-sm">Preço Unitário: {formatCurrency(selectedItem.price)}</p>
+                       </div>
+                       <button onClick={() => setSelectedItem(null)} className="text-blue-400 hover:text-blue-600">
+                           <X className="w-5 h-5" />
+                       </button>
+                   </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleClose}
-                className="px-6 py-3 border-2 border-slate-300 text-slate-700 font-semibold rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleGenerateQuote}
-                disabled={quoteItems.length === 0 || !customerName.trim()}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg flex items-center gap-2 shadow-lg transition-all transform hover:scale-105 active:scale-95"
-              >
-                <Printer className="w-5 h-5" />
-                Gerar Orçamento
-              </button>
-            </div>
-          </div>
+                   <div className="flex items-end gap-4">
+                       <div className="flex-1">
+                           <label className="block text-xs font-bold text-blue-700 uppercase mb-1">Quantidade</label>
+                           <input 
+                             type="number" 
+                             min="1" 
+                             step="any"
+                             value={quantity} 
+                             onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
+                             className="w-full p-2 border border-blue-300 rounded text-lg font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                           />
+                       </div>
+                       <div className="text-right mb-2">
+                           <p className="text-xs text-blue-600 font-bold uppercase">Total</p>
+                           <p className="text-xl font-bold text-blue-900">{formatCurrency(selectedItem.price * quantity)}</p>
+                       </div>
+                   </div>
+
+                   <button 
+                     onClick={handleAdd}
+                     className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md flex items-center justify-center gap-2 transition-transform active:scale-95"
+                   >
+                       <Check className="w-5 h-5" /> Adicionar ao Orçamento
+                   </button>
+               </div>
+           ) : (
+               <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
+                   <p className="text-slate-400 font-medium">Selecione um produto acima para continuar</p>
+               </div>
+           )}
+
         </div>
       </div>
-
-      {/* Export Modal */}
-      {isExportModalOpen && (
-        <ExportModal
-          isOpen={isExportModalOpen}
-          onClose={() => setIsExportModalOpen(false)}
-          items={quoteItems}
-          totalValue={totalValue}
-        />
-      )}
-    </>
+    </div>
   );
 };
