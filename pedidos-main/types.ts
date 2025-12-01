@@ -3,7 +3,6 @@ export interface CatalogItem {
   id: string;
   description: string;
   price: number;
-  unit?: string;
   // Fix: Added optional timestamp fields for catalog management
   createdAt?: string;
   updatedAt?: string;
