@@ -2,30 +2,20 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CatalogItem, ProcessedResult } from "../types";
 import { getConversionPromptInstructions } from "../utils/conversionRules";
 
-// Get API Key from localStorage
-const getApiKey = (): string => {
-  const key = localStorage.getItem('gemini_api_key');
-  if (!key || key.trim() === '') {
-    throw new Error('Chave de API não configurada. Por favor, configure sua chave do Google AI Studio em Configurações.');
-  }
-  return key.trim();
-};
+// Initialize API Client
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const processOrderWithGemini = async (
   catalog: CatalogItem[],
   orderText: string
 ): Promise<ProcessedResult> => {
   
-  // Get API key and initialize client
-  const apiKey = getApiKey();
-  const ai = new GoogleGenAI({ apiKey });
-  
   // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
   const catalogString = catalog
     .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
     .join('\n');
 
-  const model = "gemini-2.0-flash-exp";
+  const model = "gemini-2.5-flash";
   
   const conversionInstructions = getConversionPromptInstructions();
 
@@ -37,26 +27,7 @@ export const processOrderWithGemini = async (
     - Brands often abbreviated: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria, "EBONY" = Margirius Preto Brilhante.
     - Colors for Conduletes/Eletrodutos/Luvas/Curvas: "CZ" or "CINZA" (Grey), "BR" or "BRANCO" (White), "PT" or "PRETO" (Black), "AL" or "ALUMINIO".
     - Synonyms: "TOMADA" might match "MÓDULO" or "MOD" in the catalog if a complete set isn't found.
-    - **TERMINAL TUBULAR** is the same as **ILHÓS**. Match "Terminal Tubular" request to "ILHÓS" products.
     
-    SMART KIT EXPANSION ("CONJUNTO"):
-    - If customer asks for "Conjunto Condulete" or "Condulete Completo" (e.g., with switch/socket):
-      1. First, look for a pre-assembled kit product in the catalog.
-      2. If NOT found, you typically need to match individual parts: 
-         - The Condulete Box itself.
-         - The appropriate Plate (Tampa/Placa) e.g., "Tampa 1 posto".
-         - The Module (Módulo) e.g., "Módulo Tomada 20A" or "Módulo Interruptor".
-      3. HOWEVER, for this specific task, try to map to the MAIN component (Condulete or Kit) available in the catalog. If the catalog has "CONJUNTO MONTADO", use it. If not, match the closest single item (Condulete) but add a note/warning if possible (or let the user add the rest). 
-      *Ideally, if the catalog lists "CONJUNTO", use it.*
-
-    ADVANCED UNIT CONVERSION (CONDUITS/ELETRODUTOS):
-    - **ELETRODUTOS / CANO / TUBO** are typically sold in **3-METER BARS** (Barras de 3 metros).
-    - If the customer requests METERS (e.g., "7 metros eletroduto"), you must calculate the number of BARS required.
-    - Logic: Quantity = CEIL(Requested Meters / 3).
-    - Example: "7 metros eletroduto" -> 7 / 3 = 2.33 -> Needs **3 BARS** (Quantity: 3).
-    - Example: "10 metros tubo" -> 10 / 3 = 3.33 -> Needs **4 BARS** (Quantity: 4).
-    - **IMPORTANT:** Only apply this rule if the matching catalog item is sold by the BAR (usually implied for rigid conduits/eletrodutos, NOT flexible hoses/corrugados which are sold by meter/rolo). Check if catalog item description contains "BARRA" or implies rigid conduit. If it's "ELETRODUTO FLEXÍVEL" or "CORRUGADO", keep in meters (or convert rolo).
-
     DEFAULT ATTRIBUTES:
     - CABLES/WIRES ("cabo", "fio", "flex"): If the customer DOES NOT specify a color, YOU MUST MATCH TO BLACK ("PT", "PRETO").
       Example: "100m cabo 2.5mm" -> Match to "CABO FLEX 2,5MM PT" or "PRETO".
@@ -108,7 +79,7 @@ export const processOrderWithGemini = async (
                   originalRequest: { type: Type.STRING },
                   quantity: { type: Type.NUMBER },
                   catalogIndex: { type: Type.INTEGER, description: "Index from catalog if found, -1 if not found" },
-                  conversionLog: { type: Type.STRING, description: "Explanation if unit conversion was applied (e.g., '7m -> 3 barras (3m)'), otherwise null" }
+                  conversionLog: { type: Type.STRING, description: "Explanation if unit conversion was applied (e.g., '1 rolo = 100m'), otherwise null" }
                 },
                 required: ["originalRequest", "quantity", "catalogIndex"]
               }
@@ -148,39 +119,8 @@ export const processOrderWithGemini = async (
       items: items
     };
 
-  } catch (error: any) {
+  } catch (error) {
     console.error("Gemini Error:", error);
-    
-    // Better error messages
-    if (error.message?.includes('API key')) {
-      throw new Error('Chave de API inválida. Verifique sua chave em Configurações.');
-    }
-    if (error.message?.includes('quota')) {
-      throw new Error('Limite de uso da API atingido. Tente novamente mais tarde.');
-    }
-    if (error.message?.includes('não configurada')) {
-      throw error; // Re-throw our custom error
-    }
-    
-    throw new Error('Erro ao processar com IA. Verifique sua conexão e tente novamente.');
-  }
-};
-
-// Utility function to validate API key format
-export const validateApiKey = (key: string): boolean => {
-  return key.trim().length > 20; // Basic validation
-};
-
-// Utility function to test API key
-export const testApiKey = async (key: string): Promise<boolean> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: key.trim() });
-    await ai.models.generateContent({
-      model: "gemini-2.0-flash-exp",
-      contents: "Test",
-    });
-    return true;
-  } catch {
-    return false;
+    throw error;
   }
 };
