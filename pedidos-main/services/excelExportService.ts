@@ -31,7 +31,7 @@ export const exportToExcel = (data: ExcelExportData): void => {
   // Dados dos produtos
   const productRows = data.items.map(item => {
     const desc = item.catalogItem ? item.catalogItem.description : item.originalRequest;
-    const unit = item.catalogItem ? item.catalogItem.unit || 'UN' : 'UN';
+    const unit = 'UN'; // CatalogItem does not have unit property
     const price = item.catalogItem ? item.catalogItem.price : 0;
     const total = item.quantity * price;
 
