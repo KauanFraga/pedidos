@@ -58,12 +58,27 @@ const findLearnedMatch = (text: string): string | null => {
 // ============================================================================
 const normalizeItemType = (text: string): string => {
   let result = text.toLowerCase();
+  
+  // Normaliza cabos e fios
   result = result.replace(/\b(fio|rolos?)\b/gi, 'cabo');
   
-  // Normaliza tipos de produtos
+  // Normaliza tomadas e interruptores
   result = result.replace(/\btom\b/gi, 'tomada');
   result = result.replace(/\binter\b/gi, 'interruptor');
   result = result.replace(/\binterr\b/gi, 'interruptor');
+  
+  // Normaliza eletrodutos e conexões
+  result = result.replace(/\beletro\b/gi, 'eletroduto');
+  result = result.replace(/\beltr\b/gi, 'eletroduto');
+  result = result.replace(/\bcz\b/gi, 'cinza');
+  result = result.replace(/\bzincado\b/gi, 'zincado');
+  result = result.replace(/\balum\b/gi, 'aluminio');
+  
+  // Normaliza medidas
+  result = result.replace(/\b3\/4\b/gi, '3/4');
+  result = result.replace(/\b1\/2\b/gi, '1/2');
+  result = result.replace(/\b1\s*1\/2\b/gi, '1.1/2');
+  result = result.replace(/\b2\s*1\/2\b/gi, '2.1/2');
   
   return result;
 };
@@ -81,9 +96,9 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const items: ParsedItem[] = [];
   
-  let contextType: string | null = null; // 'tomada', 'interruptor'
-  let contextBrand: string | null = null; // 'mg', 'aria'
-  let contextDetails: string[] = []; // outros detalhes como '10a', 'simples', etc
+  let contextType: string | null = null; // 'tomada', 'interruptor', 'eletroduto', 'curva', etc
+  let contextBrand: string | null = null; // 'mg', 'aria', 'pvc', 'cinza', 'zincado'
+  let contextDetails: string[] = []; // outros detalhes como '3/4', 'leve', etc
 
   lines.forEach((line, index) => {
     const qtyMatch = line.match(/^[-*]?\s*(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
@@ -96,56 +111,93 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
       description = qtyMatch[2].trim();
     }
 
-    // Detecta tipo e marca na linha
     const lowerDesc = description.toLowerCase();
     
-    // Detecta tipo (tomada, interruptor)
+    // Detecta TIPO principal
     let lineType: string | null = null;
     if (lowerDesc.includes('tomada') || lowerDesc.includes('tom ')) {
       lineType = 'tomada';
-    } else if (lowerDesc.includes('interruptor') || lowerDesc.includes('inter ') || lowerDesc.includes('interr ')) {
+    } else if (lowerDesc.includes('interruptor') || lowerDesc.includes('inter ')) {
       lineType = 'interruptor';
+    } else if (lowerDesc.includes('eletroduto') || lowerDesc.includes('eletro')) {
+      lineType = 'eletroduto';
+    } else if (lowerDesc.includes('curva')) {
+      lineType = 'curva';
+    } else if (lowerDesc.includes('luva')) {
+      lineType = 'luva';
+    } else if (lowerDesc.includes('abraçadeira') || lowerDesc.includes('abracadeira')) {
+      lineType = 'abraçadeira';
+    } else if (lowerDesc.includes('unidut')) {
+      lineType = 'unidut';
+    } else if (lowerDesc.includes('bucha')) {
+      lineType = 'bucha';
+    } else if (lowerDesc.includes('condulete')) {
+      lineType = 'condulete';
+    } else if (lowerDesc.includes('caixa')) {
+      lineType = 'caixa';
+    } else if (lowerDesc.includes('conector') || lowerDesc.includes('split')) {
+      lineType = 'conector';
+    } else if (lowerDesc.includes('fita')) {
+      lineType = 'fita';
+    } else if (lowerDesc.includes('cabo') || lowerDesc.includes('fio')) {
+      lineType = 'cabo';
     } else if (lowerDesc.includes('simples') || lowerDesc.includes('paralelo')) {
-      // Se tem simples/paralelo mas não tem interruptor, assume interruptor
-      if (!lowerDesc.includes('tomada')) {
-        lineType = 'interruptor';
-      }
+      // Simples/paralelo sem especificar = assume interruptor
+      lineType = 'interruptor';
     }
     
-    // Detecta marca (MG, ARIA)
+    // Detecta MATERIAL/COR
     let lineBrand: string | null = null;
     if (lowerDesc.includes('aria')) {
       lineBrand = 'aria';
     } else if (lowerDesc.includes('mg') || lowerDesc.includes('margirius')) {
       lineBrand = 'mg';
+    } else if (lowerDesc.includes('pvc')) {
+      lineBrand = 'pvc';
+    } else if (lowerDesc.includes('cinza') || lowerDesc.includes('cz')) {
+      lineBrand = 'cinza';
+    } else if (lowerDesc.includes('preto') || lowerDesc.includes('preta')) {
+      lineBrand = 'preto';
+    } else if (lowerDesc.includes('branco') || lowerDesc.includes('branca')) {
+      lineBrand = 'branco';
+    } else if (lowerDesc.includes('zincado') || lowerDesc.includes('zincada')) {
+      lineBrand = 'zincado';
+    } else if (lowerDesc.includes('aluminio') || lowerDesc.includes('alum')) {
+      lineBrand = 'aluminio';
     }
     
-    // Atualiza contexto se encontrou tipo ou marca
+    // Atualiza contexto se encontrou tipo ou material
     if (lineType) {
       contextType = lineType;
       contextDetails = []; // Reset details quando muda o tipo
     }
     if (lineBrand) contextBrand = lineBrand;
     
-    // Captura detalhes da primeira linha para contexto
-    if (lineType && lineBrand) {
-      // Extrai amperagem, tipo de interruptor, etc
+    // Captura detalhes da primeira linha completa
+    if (lineType && (lineBrand || lowerDesc.match(/\d/))) {
+      // Captura medidas
+      if (lowerDesc.includes('3/4')) contextDetails.push('3/4');
+      if (lowerDesc.includes('1/2')) contextDetails.push('1/2');
+      if (lowerDesc.includes('1 1/2') || lowerDesc.includes('1.1/2')) contextDetails.push('1 1/2');
+      if (lowerDesc.includes('2 1/2') || lowerDesc.includes('2.1/2')) contextDetails.push('2 1/2');
+      
+      // Captura especificações
       if (lowerDesc.includes('10a')) contextDetails.push('10a');
       if (lowerDesc.includes('20a')) contextDetails.push('20a');
       if (lowerDesc.includes('simples')) contextDetails.push('simples');
       if (lowerDesc.includes('paralelo')) contextDetails.push('paralelo');
-      if (lowerDesc.includes('cego')) contextDetails.push('cego');
+      if (lowerDesc.includes('leve')) contextDetails.push('leve');
+      if (lowerDesc.includes('pesada')) contextDetails.push('pesada');
+      if (lowerDesc.includes('90')) contextDetails.push('90');
+      if (lowerDesc.includes('45')) contextDetails.push('45');
     }
     
-    // Aplica contexto se a linha não especifica completamente
+    // Aplica contexto se a linha não especifica
     let enrichedDescription = description;
     const needsType = !lineType && contextType;
     const needsBrand = !lineBrand && contextBrand;
     
     if (needsType || needsBrand) {
-      // Se a linha é muito curta (ex: "simples", "20a", "cego"), aplica contexto completo
-      const isShortDescription = lowerDesc.split(/\s+/).length <= 2;
-      
       if (needsType) {
         enrichedDescription = `${contextType} ${enrichedDescription}`;
       }
@@ -156,7 +208,7 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
 
     // Converte rolos
     let conversionLog = '';
-    if (description.toLowerCase().includes('rolo')) {
+    if (lowerDesc.includes('rolo')) {
       qty = qty * 100;
       conversionLog = `${qty / 100} rolo(s) → ${qty}m`;
     }
@@ -175,26 +227,62 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
 };
 
 // ============================================================================
-// BUSCA MELHORADA - RECONHECE TOMADA/INTERRUPTOR ARIA/MG
+// BUSCA UNIVERSAL - RECONHECE TODOS OS TIPOS DE MATERIAIS ELÉTRICOS
 // ============================================================================
 const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context?: { type?: string, brand?: string }): CatalogItem | null => {
   if (!searchText || catalogItems.length === 0) return null;
 
   const normalized = normalizeItemType(cleanTextForLearning(searchText));
   
-  // Detecta características principais
-  const isTomada = normalized.includes('tomada') || normalized.includes('tom ');
-  const isInterruptor = normalized.includes('interruptor') || normalized.includes('inter') || normalized.includes('simples') || normalized.includes('paralelo');
+  // Detecta TIPO DE PRODUTO
+  const isTomada = normalized.includes('tomada');
+  const isInterruptor = normalized.includes('interruptor') || normalized.includes('simples') || normalized.includes('paralelo');
+  const isEletroduto = normalized.includes('eletroduto') || normalized.includes('eletro');
+  const isCurva = normalized.includes('curva');
+  const isLuva = normalized.includes('luva');
+  const isAbraçadeira = normalized.includes('abracadeira') || normalized.includes('abraçadeira');
+  const isUnidut = normalized.includes('unidut');
+  const isBucha = normalized.includes('bucha');
+  const isCondulete = normalized.includes('condulete');
+  const isCaixa = normalized.includes('caixa');
+  const isConector = normalized.includes('conector') || normalized.includes('split');
+  const isFita = normalized.includes('fita');
+  const isCabo = normalized.includes('cabo') || normalized.includes('fio');
+  
+  // Detecta MATERIAL/COR
+  const isPVC = normalized.includes('pvc');
+  const isCinza = normalized.includes('cinza') || normalized.includes('cz');
+  const isPreto = normalized.includes('preto') || normalized.includes('preta');
+  const isBranco = normalized.includes('branco') || normalized.includes('branca');
+  const isZincado = normalized.includes('zincado') || normalized.includes('zincada');
+  const isAluminio = normalized.includes('aluminio') || normalized.includes('alum');
+  
+  // Detecta MARCA
   const isAria = normalized.includes('aria');
   const isMG = normalized.includes('mg') || normalized.includes('margirius');
+  
+  // Detecta ESPECIFICAÇÕES
   const isSimples = normalized.includes('simples') || normalized.includes('1t');
   const isParalelo = normalized.includes('paralelo') || normalized.includes('three way');
-  const is10a = normalized.includes('10a') || normalized.includes('10 a');
-  const is20a = normalized.includes('20a') || normalized.includes('20 a');
+  const is10a = normalized.includes('10a');
+  const is20a = normalized.includes('20a');
   const isCego = normalized.includes('cego') || normalized.includes('tampado');
-  const isOdCego = normalized.includes('od') || normalized.includes('oc');
+  
+  // Detecta MEDIDAS (eletrodutos, curvas, etc)
+  const measure34 = normalized.includes('3/4') || normalized.includes('3 / 4');
+  const measure12 = normalized.includes('1/2') || normalized.includes('1 / 2');
+  const measure1 = normalized.match(/\b1\s*pol\b|\b1\s*"\b|\buma\s*pol/);
+  const measure112 = normalized.includes('1.1/2') || normalized.includes('1 1/2');
+  const measure2 = normalized.match(/\b2\s*pol\b|\b2\s*"\b|\bduas\s*pol/);
+  const measure212 = normalized.includes('2.1/2') || normalized.includes('2 1/2');
+  
+  // Detecta TIPO DE CONEXÃO (para curvas)
+  const isLeve = normalized.includes('leve');
+  const isPesada = normalized.includes('pesada');
+  const is90 = normalized.includes('90') || normalized.includes('noventa');
+  const is45 = normalized.includes('45') || normalized.includes('quarenta');
 
-  // Extrai todas as palavras-chave
+  // Extrai palavras-chave
   const searchWords = normalized.split(/\s+/).filter(w => w.length >= 2);
 
   let bestMatch: CatalogItem | null = null;
@@ -203,92 +291,135 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
   for (const item of catalogItems) {
     const itemText = normalizeItemType(cleanTextForLearning(item.description));
     let score = 0;
-    let requiredMatches = 0;
-    let requiredMet = 0;
+    let hasTypeMatch = false;
 
-    // CRITÉRIOS OBRIGATÓRIOS (se não atender, score = 0)
+    // ==================== TIPO DE PRODUTO (OBRIGATÓRIO) ====================
     
-    // 1. TIPO é obrigatório (tomada OU interruptor)
-    if (isTomada) {
-      requiredMatches++;
-      if (itemText.includes('tomada')) {
-        requiredMet++;
-        score += 100;
-      }
+    // Tomadas e Interruptores
+    if (isTomada && itemText.includes('tomada')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isInterruptor && (itemText.includes('interruptor') || itemText.includes('paralelo') || itemText.includes('simples'))) {
+      score += 100;
+      hasTypeMatch = true;
     }
     
-    if (isInterruptor) {
-      requiredMatches++;
-      if (itemText.includes('interruptor') || itemText.includes('paralelo') || itemText.includes('simples')) {
-        requiredMet++;
-        score += 100;
-      }
+    // Eletrodutos e Conexões
+    if (isEletroduto && itemText.includes('eletroduto')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isCurva && itemText.includes('curva')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isLuva && itemText.includes('luva')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isAbraçadeira && (itemText.includes('abracadeira') || itemText.includes('abraçadeira'))) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isUnidut && itemText.includes('unidut')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isBucha && itemText.includes('bucha')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isCondulete && itemText.includes('condulete')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isCaixa && itemText.includes('caixa')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isConector && (itemText.includes('conector') || itemText.includes('split'))) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isFita && itemText.includes('fita')) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isCabo && (itemText.includes('cabo') || itemText.includes('fio'))) {
+      score += 100;
+      hasTypeMatch = true;
     }
 
-    // 2. MARCA é muito importante
-    if (isAria) {
-      requiredMatches++;
-      if (itemText.includes('aria')) {
-        requiredMet++;
-        score += 80;
-      }
-    }
+    // Se não bateu o tipo do produto, pula (muito importante!)
+    if (!hasTypeMatch) continue;
+
+    // ==================== MATERIAL/COR ====================
     
-    if (isMG) {
-      requiredMatches++;
-      if (itemText.includes('mg') || itemText.includes('margirius')) {
-        requiredMet++;
-        score += 80;
-      }
-    }
+    if (isPVC && itemText.includes('pvc')) score += 70;
+    if (isCinza && (itemText.includes('cinza') || itemText.includes('cz'))) score += 70;
+    if (isPreto && (itemText.includes('preto') || itemText.includes('preta'))) score += 70;
+    if (isBranco && (itemText.includes('branco') || itemText.includes('branca'))) score += 70;
+    if (isZincado && (itemText.includes('zincado') || itemText.includes('zincada'))) score += 70;
+    if (isAluminio && (itemText.includes('aluminio') || itemText.includes('alum'))) score += 70;
 
-    // Se não atendeu requisitos mínimos, pula
-    if (requiredMatches > 0 && requiredMet === 0) continue;
-
-    // PONTUAÇÃO ADICIONAL
-
-    // Amperagem
-    if (is10a && itemText.includes('10a')) score += 60;
-    if (is20a && itemText.includes('20a')) score += 60;
+    // ==================== MARCA (para tomadas/interruptores) ====================
     
-    // Tipo de interruptor
+    if (isAria && itemText.includes('aria')) score += 60;
+    if (isMG && (itemText.includes('mg') || itemText.includes('margirius'))) score += 60;
+
+    // ==================== MEDIDAS ====================
+    
+    if (measure34 && itemText.includes('3/4')) score += 80;
+    if (measure12 && itemText.includes('1/2')) score += 80;
+    if (measure112 && (itemText.includes('1.1/2') || itemText.includes('1 1/2'))) score += 80;
+    if (measure2 && itemText.match(/\b2\s*pol|\b2\s*"/)) score += 80;
+    if (measure212 && (itemText.includes('2.1/2') || itemText.includes('2 1/2'))) score += 80;
+
+    // ==================== ESPECIFICAÇÕES ====================
+    
+    // Para interruptores
     if (isSimples && itemText.includes('simples')) score += 50;
     if (isParalelo && (itemText.includes('paralelo') || itemText.includes('three'))) score += 50;
-    
-    // Características especiais
+    if (is10a && itemText.includes('10a')) score += 50;
+    if (is20a && itemText.includes('20a')) score += 50;
     if (isCego && itemText.includes('cego')) score += 40;
-    if (isOdCego && (itemText.includes('od') || itemText.includes('oc'))) score += 40;
+    
+    // Para curvas e conexões
+    if (isLeve && itemText.includes('leve')) score += 50;
+    if (isPesada && itemText.includes('pesada')) score += 50;
+    if (is90 && itemText.includes('90')) score += 40;
+    if (is45 && itemText.includes('45')) score += 40;
 
-    // Match de palavras individuais (menor peso)
+    // ==================== PENALIZAÇÕES ====================
+    
+    // Penaliza se tem características que NÃO foram pedidas
+    if (!isCinza && !isPVC && itemText.includes('cinza') && (isEletroduto || isCurva)) score -= 25;
+    if (!isPreto && !isPVC && itemText.includes('preto') && (isEletroduto || isCurva)) score -= 25;
+    if (!isZincado && itemText.includes('zincado')) score -= 25;
+    if (!isLeve && itemText.includes('leve') && isCurva) score -= 20;
+    if (!isPesada && itemText.includes('pesada') && isCurva) score -= 20;
+    if (!measure34 && itemText.includes('3/4')) score -= 30;
+    if (!measure12 && itemText.includes('1/2')) score -= 30;
+
+    // ==================== BONUS POR MATCH DE PALAVRAS ====================
+    
     let wordMatches = 0;
     for (const word of searchWords) {
-      // Ignora palavras muito comuns
-      if (['de', 'da', 'do', 'com', 'para', 'em'].includes(word)) continue;
+      if (['de', 'da', 'do', 'com', 'para', 'em', 'e'].includes(word)) continue;
       if (itemText.includes(word)) {
         wordMatches++;
-        score += 5;
+        score += 3;
       }
     }
 
-    // Penaliza se tem características que NÃO foram pedidas
-    if (!is10a && itemText.includes('10a')) score -= 20;
-    if (!is20a && itemText.includes('20a')) score -= 20;
-    if (!isSimples && itemText.includes('simples')) score -= 15;
-    if (!isParalelo && itemText.includes('paralelo')) score -= 15;
-    if (!isCego && itemText.includes('cego')) score -= 15;
+    // Bonus por múltiplas palavras
+    if (wordMatches >= 3) score += 15;
+    if (wordMatches >= 4) score += 25;
 
-    // Bonus por correspondência de múltiplas palavras
-    if (wordMatches >= 3) score += 20;
-    if (wordMatches >= 4) score += 30;
-
-    // Match quase exato (todas as palavras principais presentes)
-    const keyWords = searchWords.filter(w => w.length >= 3);
-    const allKeyWordsMatch = keyWords.every(w => itemText.includes(w));
-    if (allKeyWordsMatch && keyWords.length >= 2) {
-      score += 50;
-    }
-
-    if (score > highestScore && score >= 100) { // Score mínimo aumentado
+    // ==================== SELEÇÃO DO MELHOR ====================
+    
+    if (score > highestScore && score >= 100) {
       highestScore = score;
       bestMatch = item;
     }
