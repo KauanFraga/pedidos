@@ -8,7 +8,7 @@ import { ExportModal } from './components/ExportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CatalogManagerModal } from './components/CatalogManagerModal';
 import { DashboardModal } from './components/DashboardModal';
-import { ManualQuoteModal } from './components/ManualQuoteModal'; // NOVO!
+import { ManualQuoteModal } from './components/ManualQuoteModal';
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
@@ -23,7 +23,6 @@ const CATALOG_STORAGE_KEY = 'orcafacil_catalogo';
 const CATALOG_DATE_KEY = 'orcafacil_catalogo_data';
 
 function App() {
-  // State
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogDate, setCatalogDate] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -34,30 +33,18 @@ function App() {
   const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   
-  // Learning System State
   const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
   const [learnedMatches, setLearnedMatches] = useState<LearnedMatch[]>([]);
 
-  // History System State
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [quoteHistory, setQuoteHistory] = useState<SavedQuote[]>([]);
 
-  // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  // Settings Modal State
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
-  // Catalog Manager Modal State
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
-
-  // Dashboard Modal State
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
-
-  // NOVO: Manual Quote Modal State
   const [isManualQuoteModalOpen, setIsManualQuoteModalOpen] = useState(false);
 
-  // Computed
   const totalValue = useMemo(() => {
     return items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
   }, [items]);
@@ -77,7 +64,6 @@ function App() {
     ];
   }, [items]);
 
-  // Effects
   useEffect(() => {
     setLearnedMatches(getLearnedMatches());
     setQuoteHistory(getHistory());
@@ -91,13 +77,10 @@ function App() {
             if (Array.isArray(parsedCatalog) && parsedCatalog.length > 0) {
                 setCatalog(parsedCatalog);
                 setCatalogDate(savedDate);
-                console.log(`Restored catalog with ${parsedCatalog.length} items from ${savedDate}`);
             }
         }
     } catch (e) {
         console.error("Failed to load catalog from storage", e);
-        localStorage.removeItem(CATALOG_STORAGE_KEY);
-        localStorage.removeItem(CATALOG_DATE_KEY);
     }
   }, []);
 
@@ -109,10 +92,8 @@ function App() {
     setQuoteHistory(getHistory());
   };
 
-  // Handlers
   const handleUpload = (uploadedCatalog: CatalogItem[]) => {
     const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
-    
     setCatalog(uploadedCatalog);
     setCatalogDate(now);
     
@@ -121,7 +102,6 @@ function App() {
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
         console.error("Failed to save catalog to storage", e);
-        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
     }
   };
 
@@ -224,7 +204,6 @@ function App() {
       const processedItems = finalItems.filter(Boolean);
       setItems(processedItems);
       setStatus(QuoteStatus.COMPLETE);
-      
       setCurrentQuoteId(null);
       setLastSavedTime(null);
       
@@ -253,6 +232,22 @@ function App() {
 
   const handleQuantityChange = (id: string, qty: number) => {
     setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: qty } : i));
+  };
+
+  // NOVO: Handler para mudança de preço
+  const handlePriceChange = (itemId: string, newPrice: number) => {
+    setItems(prev => prev.map(i => {
+      if (i.id === itemId && i.catalogItem) {
+        return {
+          ...i,
+          catalogItem: {
+            ...i.catalogItem,
+            price: newPrice
+          }
+        };
+      }
+      return i;
+    }));
   };
 
   const handleProductChange = (itemId: string, catalogId: string) => {
@@ -317,7 +312,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col">
-      {/* Header */}
       <header className="bg-slate-900 text-white shadow-lg sticky top-0 z-50 print:hidden">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -329,7 +323,6 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
-             {/* NOVO: Botão Orçamento Manual */}
              <button 
                 onClick={() => setIsManualQuoteModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors border border-slate-700"
@@ -384,7 +377,6 @@ function App() {
       <main className="container mx-auto px-4 py-8 flex-1 print:p-0 print:w-full">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden">
           
-          {/* Left Column: Input */}
           <div className="lg:col-span-4 space-y-6">
             <FileUploader 
               onUpload={handleUpload} 
@@ -444,7 +436,6 @@ function App() {
             </div>
           </div>
 
-          {/* Right Column: Results */}
           <div className="lg:col-span-8 space-y-6">
             
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between items-end gap-6 relative overflow-hidden">
@@ -573,6 +564,7 @@ function App() {
                           onChangeQuantity={handleQuantityChange}
                           onChangeProduct={handleProductChange}
                           onConfirmMatch={handleConfirmMatch}
+                          onChangePrice={handlePriceChange}
                         />
                       ))
                     )}
@@ -626,7 +618,6 @@ function App() {
             history={quoteHistory}
         />
 
-        {/* NOVO: Manual Quote Modal */}
         <ManualQuoteModal
             isOpen={isManualQuoteModalOpen}
             onClose={() => setIsManualQuoteModalOpen(false)}
