@@ -1,137 +1,180 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { QuoteItem, CatalogItem } from '../types';
+import { Trash2, CheckCircle, AlertCircle, Edit2, Check, X } from 'lucide-react';
 import { formatCurrency } from '../utils/parser';
-import { Trash2, AlertCircle, Brain, ArrowRightLeft, Check } from 'lucide-react';
-import { SearchableSelect } from './SearchableSelect';
-import { saveLearnedMatch } from '../services/learningService';
 
 interface QuoteItemRowProps {
   item: QuoteItem;
   catalog: CatalogItem[];
   onDelete: (id: string) => void;
-  onChangeQuantity: (id: string, newQty: number) => void;
-  onChangeProduct: (id: string, catalogItemId: string) => void;
-  onConfirmMatch: (id: string) => void;
+  onChangeQuantity: (id: string, qty: number) => void;
+  onChangeProduct: (itemId: string, catalogId: string) => void;
+  onConfirmMatch: (itemId: string) => void;
+  onChangePrice?: (itemId: string, newPrice: number) => void; // NOVO!
 }
 
-export const QuoteItemRow: React.FC<QuoteItemRowProps> = ({ 
-  item, 
-  catalog, 
-  onDelete, 
+export const QuoteItemRow: React.FC<QuoteItemRowProps> = ({
+  item,
+  catalog,
+  onDelete,
   onChangeQuantity,
   onChangeProduct,
-  onConfirmMatch
+  onConfirmMatch,
+  onChangePrice
 }) => {
-  const isFound = item.catalogItem !== null;
-  const total = item.quantity * (item.catalogItem?.price || 0);
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  const [editedPrice, setEditedPrice] = useState(item.catalogItem?.price || 0);
 
-  const handleLearnProduct = (catalogItemId: string) => {
-    const product = catalog.find(c => c.id === catalogItemId);
-    if (product) {
-        saveLearnedMatch(item.originalRequest, product);
-        onChangeProduct(item.id, catalogItemId);
+  const isFound = item.catalogItem !== null;
+  const unitPrice = item.catalogItem?.price || 0;
+  const total = item.quantity * unitPrice;
+
+  const handleStartEditPrice = () => {
+    setEditedPrice(unitPrice);
+    setIsEditingPrice(true);
+  };
+
+  const handleSavePrice = () => {
+    if (editedPrice > 0 && onChangePrice) {
+      onChangePrice(item.id, editedPrice);
     }
+    setIsEditingPrice(false);
+  };
+
+  const handleCancelEdit = () => {
+    setEditedPrice(unitPrice);
+    setIsEditingPrice(false);
   };
 
   return (
-    <tr className={`border-b border-slate-100 transition-colors group ${!isFound ? 'bg-red-50/50' : 'hover:bg-slate-50'}`}>
-      <td className="p-3 w-24 align-top">
-        <div className="relative flex flex-col items-center justify-start">
-          <input 
-            type="number" 
-            min="1"
-            step="any"
-            value={item.quantity ?? ''}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value);
-              const safeVal = isNaN(val) ? 1 : val;
-              onChangeQuantity(item.id, safeVal);
-            }}
-            className="w-20 bg-white text-slate-900 border border-slate-300 rounded px-2 py-2 text-center font-bold focus:ring-2 focus:ring-yellow-400 outline-none text-base shadow-sm appearance-none"
-          />
-        </div>
+    <tr className={`hover:bg-slate-50 transition-colors ${!isFound ? 'bg-red-50' : ''}`}>
+      {/* Quantidade */}
+      <td className="p-3 text-center">
+        <input
+          type="number"
+          min="1"
+          step="1"
+          value={item.quantity}
+          onChange={(e) => onChangeQuantity(item.id, parseFloat(e.target.value) || 1)}
+          className="w-16 p-2 border border-slate-200 rounded text-center font-bold focus:ring-2 focus:ring-yellow-400 outline-none"
+        />
       </td>
-      <td className="p-3 align-top">
-        <div className="flex flex-col relative h-full justify-start">
-            {!isFound && (
-               <div className="flex items-center gap-1 text-red-500 text-xs font-bold mb-1">
-                  <AlertCircle className="w-3 h-3" /> Pendente
-               </div>
-            )}
-            
-            {item.isLearned && (
-               <div className="flex items-center gap-1 text-purple-600 text-xs font-bold mb-1 animate-in fade-in" title="Aprendido com base em seleções anteriores">
-                  <Brain className="w-3 h-3" /> Aprendido
-               </div>
-            )}
-            
-            {/* Custom Searchable Select Component */}
-            <div className="w-full">
-               <SearchableSelect 
-                 catalog={catalog}
-                 selectedItemId={item.catalogItem?.id}
-                 onChange={(newId) => {
-                    // If it wasn't found before, treat this manual change as learning
-                    if (!isFound) {
-                        handleLearnProduct(newId);
-                    } else {
-                        onChangeProduct(item.id, newId);
-                    }
-                 }}
-                 placeholder="(Produto não identificado - Clique para buscar)"
-                 isError={!isFound}
-               />
-            </div>
-        </div>
-      </td>
-      <td className="p-3 align-top">
-         <div className="flex flex-col">
-             <div className="text-sm text-slate-500 pt-2">
-                {item.originalRequest}
-             </div>
-             {item.conversionLog && (
-                <div className="flex items-center gap-1 mt-1 text-xs text-blue-600 bg-blue-50 w-fit px-2 py-0.5 rounded border border-blue-100" title="Conversão automática de unidade aplicada">
-                    <ArrowRightLeft className="w-3 h-3" />
-                    {item.conversionLog}
-                </div>
-             )}
-         </div>
-      </td>
-      <td className="p-3 text-right text-slate-600 font-mono text-lg align-top pt-3">
-        {item.catalogItem ? formatCurrency(item.catalogItem.price) : <span className="text-slate-300">--</span>}
-      </td>
-      <td className="p-3 text-right font-bold text-slate-800 font-mono text-lg align-top pt-3">
-        {formatCurrency(total)}
-      </td>
-      <td className="p-3 align-top pt-3 text-right">
-        <div className="flex items-center justify-end gap-1">
-            {/* Confirm Match Button */}
-            {isFound && !item.isLearned && (
-                <button 
-                  onClick={() => onConfirmMatch(item.id)}
-                  className="text-slate-400 hover:text-green-600 hover:bg-green-50 p-2 rounded-full transition-colors"
-                  title="Confirmar acerto e salvar aprendizado"
-                >
-                   <Check className="w-5 h-5" />
-                </button>
-            )}
 
-            {/* Already Learned Indicator (Action column) */}
-            {isFound && item.isLearned && (
-                 <div className="p-2 text-purple-500" title="Item aprendido">
-                    <Brain className="w-5 h-5" />
-                 </div>
-            )}
-
-            {/* Delete Button */}
-            <button 
-              onClick={() => onDelete(item.id)}
-              className="text-slate-300 hover:text-red-500 transition-colors p-2 rounded-full hover:bg-red-50"
-              title="Excluir item"
+      {/* Produto no Catálogo */}
+      <td className="p-3">
+        {isFound ? (
+          <div className="flex items-center gap-2">
+            <select
+              value={item.catalogItem?.id || ''}
+              onChange={(e) => onChangeProduct(item.id, e.target.value)}
+              className="flex-1 p-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-yellow-400 outline-none"
             >
-              <Trash2 className="w-5 h-5" />
-            </button>
-        </div>
+              <option value={item.catalogItem?.id}>{item.catalogItem?.description}</option>
+              {catalog
+                .filter(c => c.id !== item.catalogItem?.id)
+                .map(c => (
+                  <option key={c.id} value={c.id}>{c.description}</option>
+                ))}
+            </select>
+            {!item.isLearned && (
+              <button
+                onClick={() => onConfirmMatch(item.id)}
+                className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
+                title="Confirmar e Salvar Aprendizado"
+              >
+                <CheckCircle className="w-5 h-5" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <select
+            onChange={(e) => onChangeProduct(item.id, e.target.value)}
+            className="w-full p-2 border border-red-300 bg-red-50 rounded text-sm focus:ring-2 focus:ring-red-400 outline-none"
+          >
+            <option value="">❌ Não Encontrado - Selecione Manualmente</option>
+            {catalog.map(c => (
+              <option key={c.id} value={c.id}>{c.description}</option>
+            ))}
+          </select>
+        )}
+      </td>
+
+      {/* Item Solicitado */}
+      <td className="p-3">
+        <p className="text-sm text-slate-600 font-mono">{item.originalRequest}</p>
+        {item.conversionLog && (
+          <p className="text-xs text-blue-600 mt-1">ℹ️ {item.conversionLog}</p>
+        )}
+      </td>
+
+      {/* Valor Unitário - EDITÁVEL! */}
+      <td className="p-3 text-right">
+        {isFound ? (
+          <div className="flex items-center justify-end gap-2">
+            {isEditingPrice ? (
+              <>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editedPrice}
+                  onChange={(e) => setEditedPrice(parseFloat(e.target.value) || 0)}
+                  className="w-24 p-1 border-2 border-yellow-400 rounded text-right font-bold focus:ring-2 focus:ring-yellow-500 outline-none"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSavePrice();
+                    if (e.key === 'Escape') handleCancelEdit();
+                  }}
+                />
+                <button
+                  onClick={handleSavePrice}
+                  className="p-1 text-green-600 hover:bg-green-50 rounded"
+                  title="Salvar"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="p-1 text-red-600 hover:bg-red-50 rounded"
+                  title="Cancelar"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="font-bold text-slate-700">{formatCurrency(unitPrice)}</span>
+                <button
+                  onClick={handleStartEditPrice}
+                  className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  title="Editar preço"
+                >
+                  <Edit2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <span className="text-slate-400">-</span>
+        )}
+      </td>
+
+      {/* Total */}
+      <td className="p-3 text-right">
+        <span className={`font-bold text-lg ${isFound ? 'text-green-600' : 'text-slate-400'}`}>
+          {isFound ? formatCurrency(total) : '-'}
+        </span>
+      </td>
+
+      {/* Ações */}
+      <td className="p-3 text-right">
+        <button
+          onClick={() => onDelete(item.id)}
+          className="p-2 text-red-500 hover:bg-red-50 rounded transition-colors"
+          title="Remover item"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </td>
     </tr>
   );
