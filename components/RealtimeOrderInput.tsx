@@ -67,18 +67,25 @@ const normalizeItemType = (text: string): string => {
   result = result.replace(/\binter\b/gi, 'interruptor');
   result = result.replace(/\binterr\b/gi, 'interruptor');
   
+  // Normaliza módulos
+  result = result.replace(/\bmod\b/gi, 'modulo');
+  result = result.replace(/\bmods\b/gi, 'modulo');
+  
   // Normaliza eletrodutos e conexões
   result = result.replace(/\beletro\b/gi, 'eletroduto');
   result = result.replace(/\beltr\b/gi, 'eletroduto');
   result = result.replace(/\bcz\b/gi, 'cinza');
   result = result.replace(/\bzincado\b/gi, 'zincado');
   result = result.replace(/\balum\b/gi, 'aluminio');
+  result = result.replace(/\baluminio\b/gi, 'aluminio');
   
   // Normaliza medidas
   result = result.replace(/\b3\/4\b/gi, '3/4');
   result = result.replace(/\b1\/2\b/gi, '1/2');
-  result = result.replace(/\b1\s*1\/2\b/gi, '1.1/2');
-  result = result.replace(/\b2\s*1\/2\b/gi, '2.1/2');
+  result = result.replace(/\b1\s*1\/2\b/gi, '1 1/2');
+  result = result.replace(/\b2\s*1\/2\b/gi, '2 1/2');
+  result = result.replace(/\b1\s*pol\b/gi, '1"');
+  result = result.replace(/\b2\s*pol\b/gi, '2"');
   
   return result;
 };
@@ -119,6 +126,8 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
       lineType = 'tomada';
     } else if (lowerDesc.includes('interruptor') || lowerDesc.includes('inter ')) {
       lineType = 'interruptor';
+    } else if (lowerDesc.includes('modulo') || lowerDesc.includes('mod ')) {
+      lineType = 'modulo';
     } else if (lowerDesc.includes('eletroduto') || lowerDesc.includes('eletro')) {
       lineType = 'eletroduto';
     } else if (lowerDesc.includes('curva')) {
@@ -237,6 +246,7 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
   // Detecta TIPO DE PRODUTO
   const isTomada = normalized.includes('tomada');
   const isInterruptor = normalized.includes('interruptor') || normalized.includes('simples') || normalized.includes('paralelo');
+  const isModulo = normalized.includes('modulo') || normalized.includes('mod ');
   const isEletroduto = normalized.includes('eletroduto') || normalized.includes('eletro');
   const isCurva = normalized.includes('curva');
   const isLuva = normalized.includes('luva');
@@ -268,13 +278,13 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
   const is20a = normalized.includes('20a');
   const isCego = normalized.includes('cego') || normalized.includes('tampado');
   
-  // Detecta MEDIDAS (eletrodutos, curvas, etc)
-  const measure34 = normalized.includes('3/4') || normalized.includes('3 / 4');
-  const measure12 = normalized.includes('1/2') || normalized.includes('1 / 2');
-  const measure1 = normalized.match(/\b1\s*pol\b|\b1\s*"\b|\buma\s*pol/);
-  const measure112 = normalized.includes('1.1/2') || normalized.includes('1 1/2');
-  const measure2 = normalized.match(/\b2\s*pol\b|\b2\s*"\b|\bduas\s*pol/);
-  const measure212 = normalized.includes('2.1/2') || normalized.includes('2 1/2');
+  // Detecta MEDIDAS (eletrodutos, curvas, etc) - MELHORADO
+  const measure34 = normalized.includes('3/4') || normalized.includes('3 / 4') || normalized.match(/\b3\s*4\b/);
+  const measure12 = normalized.includes('1/2') || normalized.includes('1 / 2') || normalized.match(/\b1\s*2\b/);
+  const measure1 = normalized.match(/\b1\s*pol\b|\b1\s*"\b|\b1\s+pol/) || (normalized.includes(' 1 ') && (isEletroduto || isCurva || isUnidut));
+  const measure112 = normalized.includes('1 1/2') || normalized.includes('1.1/2') || normalized.includes('1 e 1/2');
+  const measure2 = normalized.match(/\b2\s*pol\b|\b2\s*"\b|\b2\s+pol/) || (normalized.includes(' 2 ') && (isEletroduto || isCurva || isUnidut));
+  const measure212 = normalized.includes('2 1/2') || normalized.includes('2.1/2') || normalized.includes('2 e 1/2');
   
   // Detecta TIPO DE CONEXÃO (para curvas)
   const isLeve = normalized.includes('leve');
@@ -301,6 +311,10 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
       hasTypeMatch = true;
     }
     if (isInterruptor && (itemText.includes('interruptor') || itemText.includes('paralelo') || itemText.includes('simples'))) {
+      score += 100;
+      hasTypeMatch = true;
+    }
+    if (isModulo && itemText.includes('modulo')) {
       score += 100;
       hasTypeMatch = true;
     }
@@ -368,13 +382,14 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
     if (isAria && itemText.includes('aria')) score += 60;
     if (isMG && (itemText.includes('mg') || itemText.includes('margirius'))) score += 60;
 
-    // ==================== MEDIDAS ====================
+    // ==================== MEDIDAS - PESO AINDA MAIOR ====================
     
-    if (measure34 && itemText.includes('3/4')) score += 80;
-    if (measure12 && itemText.includes('1/2')) score += 80;
-    if (measure112 && (itemText.includes('1.1/2') || itemText.includes('1 1/2'))) score += 80;
-    if (measure2 && itemText.match(/\b2\s*pol|\b2\s*"/)) score += 80;
-    if (measure212 && (itemText.includes('2.1/2') || itemText.includes('2 1/2'))) score += 80;
+    if (measure34 && (itemText.includes('3/4') || itemText.includes('3 4'))) score += 100;
+    if (measure12 && (itemText.includes('1/2') || itemText.includes('1 2'))) score += 100;
+    if (measure1 && (itemText.match(/\b1\s*pol|\b1\s*"/) || itemText.includes(' 1 '))) score += 100;
+    if (measure112 && (itemText.includes('1 1/2') || itemText.includes('1.1/2'))) score += 100;
+    if (measure2 && (itemText.match(/\b2\s*pol|\b2\s*"/) || itemText.includes(' 2 '))) score += 100;
+    if (measure212 && (itemText.includes('2 1/2') || itemText.includes('2.1/2'))) score += 100;
 
     // ==================== ESPECIFICAÇÕES ====================
     
@@ -391,16 +406,19 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
     if (is90 && itemText.includes('90')) score += 40;
     if (is45 && itemText.includes('45')) score += 40;
 
-    // ==================== PENALIZAÇÕES ====================
+    // ==================== PENALIZAÇÕES - AJUSTADO ====================
+    
+    // Penaliza se tem medida diferente da pedida
+    if (!measure34 && !measure12 && !measure1 && itemText.includes('3/4')) score -= 40;
+    if (!measure12 && !measure34 && !measure1 && itemText.includes('1/2')) score -= 40;
+    if (!measure1 && !measure112 && itemText.match(/\b1\s*pol|\b1\s*"/)) score -= 40;
     
     // Penaliza se tem características que NÃO foram pedidas
-    if (!isCinza && !isPVC && itemText.includes('cinza') && (isEletroduto || isCurva)) score -= 25;
-    if (!isPreto && !isPVC && itemText.includes('preto') && (isEletroduto || isCurva)) score -= 25;
-    if (!isZincado && itemText.includes('zincado')) score -= 25;
-    if (!isLeve && itemText.includes('leve') && isCurva) score -= 20;
-    if (!isPesada && itemText.includes('pesada') && isCurva) score -= 20;
-    if (!measure34 && itemText.includes('3/4')) score -= 30;
-    if (!measure12 && itemText.includes('1/2')) score -= 30;
+    if (!isCinza && !isPVC && itemText.includes('cinza') && (isEletroduto || isCurva)) score -= 15;
+    if (!isPreto && !isPVC && itemText.includes('preto') && (isEletroduto || isCurva)) score -= 15;
+    if (!isZincado && itemText.includes('zincado')) score -= 15;
+    if (!isLeve && itemText.includes('leve') && isCurva) score -= 10;
+    if (!isPesada && itemText.includes('pesada') && isCurva) score -= 10;
 
     // ==================== BONUS POR MATCH DE PALAVRAS ====================
     
