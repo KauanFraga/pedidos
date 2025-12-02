@@ -83,6 +83,7 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
   
   let contextType: string | null = null; // 'tomada', 'interruptor'
   let contextBrand: string | null = null; // 'mg', 'aria'
+  let contextDetails: string[] = []; // outros detalhes como '10a', 'simples', etc
 
   lines.forEach((line, index) => {
     const qtyMatch = line.match(/^[-*]?\s*(\d+(?:[.,]\d+)?)\s*(?:un|cx|pc|pç|m|mt|mts|metros?|kg|g|l|r|rl|rolos?|x)?\s*[-:]?\s*(.+)/i);
@@ -104,31 +105,51 @@ const parseForManualSearch = (text: string): ParsedItem[] => {
       lineType = 'tomada';
     } else if (lowerDesc.includes('interruptor') || lowerDesc.includes('inter ') || lowerDesc.includes('interr ')) {
       lineType = 'interruptor';
+    } else if (lowerDesc.includes('simples') || lowerDesc.includes('paralelo')) {
+      // Se tem simples/paralelo mas não tem interruptor, assume interruptor
+      if (!lowerDesc.includes('tomada')) {
+        lineType = 'interruptor';
+      }
     }
     
     // Detecta marca (MG, ARIA)
     let lineBrand: string | null = null;
     if (lowerDesc.includes('aria')) {
       lineBrand = 'aria';
-    } else if (lowerDesc.includes('mg')) {
+    } else if (lowerDesc.includes('mg') || lowerDesc.includes('margirius')) {
       lineBrand = 'mg';
     }
     
     // Atualiza contexto se encontrou tipo ou marca
-    if (lineType) contextType = lineType;
+    if (lineType) {
+      contextType = lineType;
+      contextDetails = []; // Reset details quando muda o tipo
+    }
     if (lineBrand) contextBrand = lineBrand;
     
-    // Aplica contexto se a linha não especifica
+    // Captura detalhes da primeira linha para contexto
+    if (lineType && lineBrand) {
+      // Extrai amperagem, tipo de interruptor, etc
+      if (lowerDesc.includes('10a')) contextDetails.push('10a');
+      if (lowerDesc.includes('20a')) contextDetails.push('20a');
+      if (lowerDesc.includes('simples')) contextDetails.push('simples');
+      if (lowerDesc.includes('paralelo')) contextDetails.push('paralelo');
+      if (lowerDesc.includes('cego')) contextDetails.push('cego');
+    }
+    
+    // Aplica contexto se a linha não especifica completamente
     let enrichedDescription = description;
-    if (contextType && !lineType) {
-      // Se temos contexto de tipo mas a linha não especifica, adiciona
-      if (!lowerDesc.includes('tomada') && !lowerDesc.includes('interruptor')) {
+    const needsType = !lineType && contextType;
+    const needsBrand = !lineBrand && contextBrand;
+    
+    if (needsType || needsBrand) {
+      // Se a linha é muito curta (ex: "simples", "20a", "cego"), aplica contexto completo
+      const isShortDescription = lowerDesc.split(/\s+/).length <= 2;
+      
+      if (needsType) {
         enrichedDescription = `${contextType} ${enrichedDescription}`;
       }
-    }
-    if (contextBrand && !lineBrand) {
-      // Se temos contexto de marca mas a linha não especifica, adiciona
-      if (!lowerDesc.includes('aria') && !lowerDesc.includes('mg')) {
+      if (needsBrand) {
         enrichedDescription = `${enrichedDescription} ${contextBrand}`;
       }
     }
@@ -161,14 +182,20 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
 
   const normalized = normalizeItemType(cleanTextForLearning(searchText));
   
-  // Detecta características
+  // Detecta características principais
   const isTomada = normalized.includes('tomada') || normalized.includes('tom ');
-  const isInterruptor = normalized.includes('interruptor') || normalized.includes('inter');
+  const isInterruptor = normalized.includes('interruptor') || normalized.includes('inter') || normalized.includes('simples') || normalized.includes('paralelo');
   const isAria = normalized.includes('aria');
-  const isMG = normalized.includes('mg');
-  const isSimples = normalized.includes('simples');
+  const isMG = normalized.includes('mg') || normalized.includes('margirius');
+  const isSimples = normalized.includes('simples') || normalized.includes('1t');
+  const isParalelo = normalized.includes('paralelo') || normalized.includes('three way');
   const is10a = normalized.includes('10a') || normalized.includes('10 a');
   const is20a = normalized.includes('20a') || normalized.includes('20 a');
+  const isCego = normalized.includes('cego') || normalized.includes('tampado');
+  const isOdCego = normalized.includes('od') || normalized.includes('oc');
+
+  // Extrai todas as palavras-chave
+  const searchWords = normalized.split(/\s+/).filter(w => w.length >= 2);
 
   let bestMatch: CatalogItem | null = null;
   let highestScore = 0;
@@ -176,34 +203,92 @@ const findSmartMatch = (searchText: string, catalogItems: CatalogItem[], context
   for (const item of catalogItems) {
     const itemText = normalizeItemType(cleanTextForLearning(item.description));
     let score = 0;
+    let requiredMatches = 0;
+    let requiredMet = 0;
 
-    // Pontos por tipo
-    if (isTomada && itemText.includes('tomada')) score += 50;
-    if (isInterruptor && (itemText.includes('interruptor') || itemText.includes('paralelo'))) score += 50;
+    // CRITÉRIOS OBRIGATÓRIOS (se não atender, score = 0)
     
-    // Pontos por marca
-    if (isAria && itemText.includes('aria')) score += 40;
-    if (isMG && itemText.includes('mg')) score += 40;
+    // 1. TIPO é obrigatório (tomada OU interruptor)
+    if (isTomada) {
+      requiredMatches++;
+      if (itemText.includes('tomada')) {
+        requiredMet++;
+        score += 100;
+      }
+    }
     
-    // Pontos por especificação
-    if (isSimples && itemText.includes('simples')) score += 30;
-    if (is10a && itemText.includes('10a')) score += 30;
-    if (is20a && itemText.includes('20a')) score += 30;
-    
-    // Pontos por palavras-chave gerais
-    const words = normalized.split(/\s+/).filter(w => w.length >= 3);
-    for (const word of words) {
-      if (itemText.includes(word) && word !== 'tomada' && word !== 'interruptor') {
-        score += word.length * 2;
+    if (isInterruptor) {
+      requiredMatches++;
+      if (itemText.includes('interruptor') || itemText.includes('paralelo') || itemText.includes('simples')) {
+        requiredMet++;
+        score += 100;
       }
     }
 
-    // Match exato ganha muito
-    if (itemText.includes(normalized)) {
-      score += 100;
+    // 2. MARCA é muito importante
+    if (isAria) {
+      requiredMatches++;
+      if (itemText.includes('aria')) {
+        requiredMet++;
+        score += 80;
+      }
+    }
+    
+    if (isMG) {
+      requiredMatches++;
+      if (itemText.includes('mg') || itemText.includes('margirius')) {
+        requiredMet++;
+        score += 80;
+      }
     }
 
-    if (score > highestScore && score > 30) {
+    // Se não atendeu requisitos mínimos, pula
+    if (requiredMatches > 0 && requiredMet === 0) continue;
+
+    // PONTUAÇÃO ADICIONAL
+
+    // Amperagem
+    if (is10a && itemText.includes('10a')) score += 60;
+    if (is20a && itemText.includes('20a')) score += 60;
+    
+    // Tipo de interruptor
+    if (isSimples && itemText.includes('simples')) score += 50;
+    if (isParalelo && (itemText.includes('paralelo') || itemText.includes('three'))) score += 50;
+    
+    // Características especiais
+    if (isCego && itemText.includes('cego')) score += 40;
+    if (isOdCego && (itemText.includes('od') || itemText.includes('oc'))) score += 40;
+
+    // Match de palavras individuais (menor peso)
+    let wordMatches = 0;
+    for (const word of searchWords) {
+      // Ignora palavras muito comuns
+      if (['de', 'da', 'do', 'com', 'para', 'em'].includes(word)) continue;
+      if (itemText.includes(word)) {
+        wordMatches++;
+        score += 5;
+      }
+    }
+
+    // Penaliza se tem características que NÃO foram pedidas
+    if (!is10a && itemText.includes('10a')) score -= 20;
+    if (!is20a && itemText.includes('20a')) score -= 20;
+    if (!isSimples && itemText.includes('simples')) score -= 15;
+    if (!isParalelo && itemText.includes('paralelo')) score -= 15;
+    if (!isCego && itemText.includes('cego')) score -= 15;
+
+    // Bonus por correspondência de múltiplas palavras
+    if (wordMatches >= 3) score += 20;
+    if (wordMatches >= 4) score += 30;
+
+    // Match quase exato (todas as palavras principais presentes)
+    const keyWords = searchWords.filter(w => w.length >= 3);
+    const allKeyWordsMatch = keyWords.every(w => itemText.includes(w));
+    if (allKeyWordsMatch && keyWords.length >= 2) {
+      score += 50;
+    }
+
+    if (score > highestScore && score >= 100) { // Score mínimo aumentado
       highestScore = score;
       bestMatch = item;
     }
