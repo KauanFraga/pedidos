@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Sparkles, Zap } from 'lucide-react';
+import { Search, X, Sparkles, Zap, CheckCircle2, XCircle, ArrowRight, Package } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -245,20 +245,25 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   onCustomerNameChange,
 }) => {
   const [inputText, setInputText] = useState('');
+  const [processedItems, setProcessedItems] = useState<QuoteItem[]>([]);
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [useManualSearch, setUseManualSearch] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Busca manual em tempo real
   useEffect(() => {
     if (!useManualSearch || !inputText.trim() || catalog.length === 0) {
-      if (!inputText.trim()) onItemsChange([]);
+      if (!inputText.trim()) {
+        setProcessedItems([]);
+        onItemsChange([]);
+      }
       return;
     }
 
     const parsedItems = parseForManualSearch(inputText);
     
-    const processedItems: QuoteItem[] = parsedItems.map(item => {
+    const items: QuoteItem[] = parsedItems.map(item => {
       const cleanText = cleanTextForLearning(item.originalRequest);
       
       const learnedProductId = findLearnedMatch(cleanText);
@@ -273,9 +278,16 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
       return { ...item, catalogItem: simpleMatch, isLearned: false };
     });
 
-    onItemsChange(processedItems);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputText, catalog, useManualSearch]);
+    setProcessedItems(items);
+    onItemsChange(items);
+    
+    // Auto-scroll para o final dos resultados
+    setTimeout(() => {
+      if (resultsRef.current) {
+        resultsRef.current.scrollTop = resultsRef.current.scrollHeight;
+      }
+    }, 50);
+  }, [inputText, catalog, useManualSearch, onItemsChange]);
 
   // Processa com IA
   const handleProcessWithAI = async () => {
@@ -286,6 +298,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     
     try {
       const aiResults = await processWithGemini(inputText, catalog);
+      setProcessedItems(aiResults);
       onItemsChange(aiResults);
     } catch (error) {
       alert('Erro ao processar com IA: ' + (error as Error).message);
@@ -302,109 +315,238 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
 
   const handleClear = () => {
     setInputText('');
+    setProcessedItems([]);
     onItemsChange([]);
     setUseManualSearch(true);
   };
 
   const lineCount = inputText.split('\n').filter(line => line.trim()).length;
+  const foundCount = processedItems.filter(item => item.catalogItem !== null).length;
+  const notFoundCount = processedItems.filter(item => item.catalogItem === null).length;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-      <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className={`${useManualSearch ? 'bg-blue-500' : 'bg-purple-500'} p-2 rounded-lg transition-colors`}>
-              {useManualSearch ? <Zap className="w-5 h-5 text-white" /> : <Sparkles className="w-5 h-5 text-white" />}
+    <div className="space-y-4">
+      {/* Header Card */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className={`${useManualSearch ? 'bg-blue-500' : 'bg-purple-500'} p-2 rounded-lg transition-colors`}>
+                {useManualSearch ? <Zap className="w-5 h-5 text-white" /> : <Sparkles className="w-5 h-5 text-white" />}
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800">
+                  {useManualSearch ? 'Busca Manual' : 'Processado com IA'}
+                </h3>
+                <p className="text-xs text-slate-600">
+                  {useManualSearch ? 'Instantânea, pode ter erros' : 'Resultado inteligente'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-slate-800">
-                {useManualSearch ? 'Busca Manual' : 'Processado com IA'}
-              </h3>
-              <p className="text-xs text-slate-600">
-                {useManualSearch ? 'Instantânea, pode ter erros' : 'Resultado inteligente'}
+
+            <div className="flex gap-2">
+              {!useManualSearch && (
+                <button
+                  onClick={handleBackToManual}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium flex items-center gap-2 transition-all text-sm"
+                >
+                  <Zap className="w-4 h-4" />
+                  Voltar Manual
+                </button>
+              )}
+              
+              <button
+                onClick={handleProcessWithAI}
+                disabled={!inputText.trim() || isProcessingAI}
+                className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg text-sm"
+              >
+                {isProcessingAI ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Processar com IA
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <input
+              type="text"
+              value={customerName}
+              onChange={(e) => onCustomerNameChange(e.target.value)}
+              placeholder="Nome do cliente (opcional)"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="p-4">
+          <div className="relative">
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Cole ou digite a lista de materiais:&#10;&#10;1 rolo cabo 16mm preto&#10;1 rolo fio 6mm preto&#10;3 rolo fio 4mm (preto/azul/verde)&#10;3 rolo fio 2,5mm (vermelho/azul/verde)&#10;&#10;💡 Use 'Processar com IA' para máxima precisão!"
+              className="w-full h-48 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
+              style={{ fontFamily: 'ui-monospace, monospace' }}
+            />
+            
+            {inputText && (
+              <button
+                onClick={handleClear}
+                className="absolute top-2 right-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                title="Limpar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              {useManualSearch ? (
+                <span className="text-slate-500">⚡ Busca manual ativa</span>
+              ) : (
+                <span className="text-purple-600 font-medium">✨ Processado com IA</span>
+              )}
+            </div>
+            {inputText && (
+              <span className="text-blue-600 font-medium">
+                {lineCount} {lineCount === 1 ? 'linha' : 'linhas'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Results Card */}
+      {processedItems.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-gradient-to-r from-green-50 to-emerald-50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Package className="w-5 h-5 text-green-600" />
+                <h3 className="font-bold text-slate-800">Itens Processados</h3>
+              </div>
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-1">
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <span className="font-semibold text-green-700">{foundCount}</span>
+                  <span className="text-slate-600">encontrados</span>
+                </div>
+                {notFoundCount > 0 && (
+                  <div className="flex items-center gap-1">
+                    <XCircle className="w-4 h-4 text-red-600" />
+                    <span className="font-semibold text-red-700">{notFoundCount}</span>
+                    <span className="text-slate-600">não encontrados</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div 
+            ref={resultsRef}
+            className="max-h-96 overflow-y-auto p-4 space-y-2"
+          >
+            {processedItems.map((item, index) => (
+              <div 
+                key={item.id}
+                className={`p-3 rounded-lg border-2 transition-all ${
+                  item.catalogItem 
+                    ? 'border-green-200 bg-green-50' 
+                    : 'border-red-200 bg-red-50'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0">
+                    {item.catalogItem ? (
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <XCircle className="w-5 h-5 text-red-600" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex-1">
+                        <p className="font-semibold text-slate-800 text-sm">
+                          {item.quantity}x {item.originalRequest}
+                        </p>
+                        {item.conversionLog && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-blue-600 bg-blue-100 px-2 py-1 rounded w-fit">
+                            <ArrowRight className="w-3 h-3" />
+                            {item.conversionLog}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-xs text-slate-500 block">#{index + 1}</span>
+                        {item.isLearned && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded mt-1 inline-block">
+                            ⭐ Aprendido
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {item.catalogItem ? (
+                      <div className="bg-white rounded border border-green-300 p-2">
+                        <p className="text-sm text-slate-700 font-medium">
+                          {item.catalogItem.description}
+                        </p>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className="text-lg font-bold text-green-700">
+                            R$ {item.catalogItem.price.toFixed(2)}
+                          </p>
+                          <p className="text-sm text-slate-600">
+                            Subtotal: <span className="font-semibold text-slate-800">
+                              R$ {(item.quantity * item.catalogItem.price).toFixed(2)}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-red-100 border border-red-300 rounded p-2">
+                        <p className="text-sm text-red-700 font-medium">
+                          ❌ Item não encontrado no catálogo
+                        </p>
+                        <p className="text-xs text-red-600 mt-1">
+                          Verifique a descrição ou use "Processar com IA"
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer Summary */}
+          <div className="p-4 border-t border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-slate-600">
+                Total de <span className="font-semibold text-slate-800">{processedItems.length}</span> itens processados
+              </p>
+              <p className="text-lg font-bold text-slate-800">
+                Valor total: <span className="text-green-700">
+                  R$ {processedItems.reduce((sum, item) => 
+                    sum + (item.quantity * (item.catalogItem?.price || 0)), 0
+                  ).toFixed(2)}
+                </span>
               </p>
             </div>
           </div>
-
-          <div className="flex gap-2">
-            {!useManualSearch && (
-              <button
-                onClick={handleBackToManual}
-                className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium flex items-center gap-2 transition-all text-sm"
-              >
-                <Zap className="w-4 h-4" />
-                Voltar Manual
-              </button>
-            )}
-            
-            <button
-              onClick={handleProcessWithAI}
-              disabled={!inputText.trim() || isProcessingAI}
-              className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg text-sm"
-            >
-              {isProcessingAI ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Processando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  Processar com IA
-                </>
-              )}
-            </button>
-          </div>
         </div>
-
-        <div className="mb-3">
-          <input
-            type="text"
-            value={customerName}
-            onChange={(e) => onCustomerNameChange(e.target.value)}
-            placeholder="Nome do cliente (opcional)"
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-          />
-        </div>
-      </div>
-
-      <div className="p-4">
-        <div className="relative">
-          <textarea
-            ref={textareaRef}
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Cole ou digite a lista de materiais:&#10;&#10;1 rolo cabo 16mm preto&#10;1 rolo fio 6mm preto&#10;3 rolo fio 4mm (preto/azul/verde)&#10;3 rolo fio 2,5mm (vermelho/azul/verde)&#10;&#10;💡 Use 'Processar com IA' para máxima precisão!"
-            className="w-full h-64 px-4 py-3 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none font-mono text-sm"
-            style={{ fontFamily: 'ui-monospace, monospace' }}
-          />
-          
-          {inputText && (
-            <button
-              onClick={handleClear}
-              className="absolute top-2 right-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="Limpar"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        <div className="mt-3 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            {useManualSearch ? (
-              <span className="text-slate-500">⚡ Busca manual ativa • Clique no botão roxo para IA</span>
-            ) : (
-              <span className="text-purple-600 font-medium">✨ Resultado processado com Inteligência Artificial</span>
-            )}
-          </div>
-          {inputText && (
-            <span className="text-blue-600 font-medium">
-              {lineCount} {lineCount === 1 ? 'linha' : 'linhas'}
-            </span>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 };
+
+export default RealtimeOrderInput;
