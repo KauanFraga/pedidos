@@ -2,13 +2,23 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CatalogItem, ProcessedResult } from "../types";
 import { getConversionPromptInstructions } from "../utils/conversionRules";
 
-// Initialize API Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Get API Key from localStorage
+const getApiKey = (): string => {
+  const key = localStorage.getItem('gemini_api_key');
+  if (!key || key.trim() === '') {
+    throw new Error('Chave de API não configurada. Por favor, configure sua chave do Google AI Studio em Configurações.');
+  }
+  return key.trim();
+};
 
 export const processOrderWithGemini = async (
   catalog: CatalogItem[],
   orderText: string
 ): Promise<ProcessedResult> => {
+  
+  // Get API key and initialize client
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   
   // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
   const catalogString = catalog
@@ -138,8 +148,39 @@ export const processOrderWithGemini = async (
       items: items
     };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Error:", error);
-    throw error;
+    
+    // Better error messages
+    if (error.message?.includes('API key')) {
+      throw new Error('Chave de API inválida. Verifique sua chave em Configurações.');
+    }
+    if (error.message?.includes('quota')) {
+      throw new Error('Limite de uso da API atingido. Tente novamente mais tarde.');
+    }
+    if (error.message?.includes('não configurada')) {
+      throw error; // Re-throw our custom error
+    }
+    
+    throw new Error('Erro ao processar com IA. Verifique sua conexão e tente novamente.');
+  }
+};
+
+// Utility function to validate API key format
+export const validateApiKey = (key: string): boolean => {
+  return key.trim().length > 20; // Basic validation
+};
+
+// Utility function to test API key
+export const testApiKey = async (key: string): Promise<boolean> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: key.trim() });
+    await ai.models.generateContent({
+      model: "gemini-2.0-flash-exp",
+      contents: "Test",
+    });
+    return true;
+  } catch {
+    return false;
   }
 };
