@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
@@ -7,14 +6,18 @@ import { LearningModal } from './components/LearningModal';
 import { HistoryModal } from './components/HistoryModal';
 import { ExportModal } from './components/ExportModal'; 
 import { SettingsModal } from './components/SettingsModal';
-import { CatalogManagerModal } from './components/CatalogManagerModal'; // Fix: Import CatalogManagerModal
+import { CatalogManagerModal } from './components/CatalogManagerModal';
+import { DashboardModal } from './components/DashboardModal';
+import { ManualQuoteModal } from './components/ManualQuoteModal';
+import { AuthModal } from './components/AuthModal';
 import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
-import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory } from './services/historyService';
+import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory, updateSavedQuote } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings } from 'lucide-react'; 
+import { onAuthChange, logoutUser, AuthUser } from './services/firebaseAuthService';
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save, Edit3, LogOut } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -22,6 +25,11 @@ const CATALOG_STORAGE_KEY = 'orcafacil_catalogo';
 const CATALOG_DATE_KEY = 'orcafacil_catalogo_data';
 
 function App() {
+  // Firebase Auth State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   // State
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogDate, setCatalogDate] = useState<string | null>(null);
@@ -29,6 +37,9 @@ function App() {
   const [customerName, setCustomerName] = useState(''); 
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [status, setStatus] = useState<QuoteStatus>(QuoteStatus.IDLE);
+  
+  const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
+  const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   
   // Learning System State
   const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
@@ -45,8 +56,13 @@ function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Catalog Manager Modal State
-  // Fix: Added state for catalog manager
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
+
+  // Dashboard Modal State
+  const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
+
+  // Manual Quote Modal State
+  const [isManualQuoteModalOpen, setIsManualQuoteModalOpen] = useState(false);
 
   // Computed
   const totalValue = useMemo(() => {
@@ -68,15 +84,25 @@ function App() {
     ];
   }, [items]);
 
+  // Firebase Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthChange((user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      
+      if (!user) {
+        setIsAuthModalOpen(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // Effects
   useEffect(() => {
-    // Load learned matches
     setLearnedMatches(getLearnedMatches());
-
-    // Load History
     setQuoteHistory(getHistory());
 
-    // Load persisted catalog
     try {
         const savedCatalog = localStorage.getItem(CATALOG_STORAGE_KEY);
         const savedDate = localStorage.getItem(CATALOG_DATE_KEY);
@@ -91,11 +117,20 @@ function App() {
         }
     } catch (e) {
         console.error("Failed to load catalog from storage", e);
-        // Clear corrupt data
         localStorage.removeItem(CATALOG_STORAGE_KEY);
         localStorage.removeItem(CATALOG_DATE_KEY);
     }
   }, []);
+
+  const handleLogout = async () => {
+    if (confirm('Deseja sair da sua conta?')) {
+      try {
+        await logoutUser();
+      } catch (error) {
+        console.error('Erro ao sair:', error);
+      }
+    }
+  };
 
   const refreshLearnedMatches = () => {
     setLearnedMatches(getLearnedMatches());
@@ -112,13 +147,12 @@ function App() {
     setCatalog(uploadedCatalog);
     setCatalogDate(now);
     
-    // Persist
     try {
         localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(uploadedCatalog));
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
-        console.error("Failed to save catalog to storage (likely quota exceeded)", e);
-        alert("Atenção: O catálogo é muito grande para ser salvo no navegador. Ele funcionará agora, mas você precisará enviá-lo novamente se recarregar a página.");
+        console.error("Failed to save catalog to storage", e);
+        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
     }
   };
 
@@ -132,8 +166,23 @@ function App() {
         localStorage.setItem(CATALOG_DATE_KEY, now);
     } catch (e) {
         console.error("Failed to save catalog to storage", e);
-        alert("Atenção: O catálogo é muito grande para ser salvo no navegador.");
     }
+  };
+
+  const saveCurrentQuoteState = () => {
+      if (items.length === 0) return;
+
+      if (currentQuoteId) {
+          updateSavedQuote(currentQuoteId, {
+              customerName: customerName,
+              items: items,
+          });
+      } else {
+          const newQuote = saveQuoteToHistory(customerName, items, inputText);
+          setCurrentQuoteId(newQuote.id);
+      }
+      setLastSavedTime(new Date().toLocaleTimeString());
+      refreshHistory();
   };
 
   const handleProcess = async () => {
@@ -146,13 +195,10 @@ function App() {
     try {
       const lines = inputText.split('\n').filter(l => l.trim() !== '');
       
-      // Arrays to hold the final result and the subset of items that need AI processing
       const finalItems: QuoteItem[] = new Array(lines.length);
       const linesToProcess: { text: string, originalIndex: number }[] = [];
 
-      // 1. Check Local Storage matches first
       lines.forEach((line, idx) => {
-         // CLEAN input before searching
          const cleanedInput = cleanTextForLearning(line);
          const matchId = findLearnedMatch(cleanedInput);
          let foundLocally = false;
@@ -160,10 +206,8 @@ function App() {
          if (matchId) {
             const catalogItem = catalog.find(c => c.id === matchId);
             if (catalogItem) {
-                // Found locally - construct item immediately
                 foundLocally = true;
                 
-                // Basic quantity extraction for locally matched items
                 let quantity = 1;
                 const qtyMatch = line.match(/^(\d+(?:[.,]\d+)?)/);
                 if (qtyMatch) {
@@ -171,7 +215,6 @@ function App() {
                     if (!isNaN(q) && q > 0) quantity = q;
                 }
 
-                // Apply conversions (e.g. "rolo" -> 100m)
                 const { newQuantity, log } = applyConversions(line, quantity);
 
                 finalItems[idx] = {
@@ -185,46 +228,35 @@ function App() {
             }
          }
          
-         // If not found locally, add to queue for AI
          if (!foundLocally) {
              linesToProcess.push({ text: line, originalIndex: idx });
          }
       });
 
-      // 2. Send remaining items to Gemini
       if (linesToProcess.length > 0) {
           const textToProcess = linesToProcess.map(l => l.text).join('\n');
           const result = await processOrderWithGemini(catalog, textToProcess);
           
-          // 3. Merge AI results back into the correct positions
           result.items.forEach((item, resultIdx) => {
-              // Safety check to prevent index out of bounds if AI hallucinated extra items
               if (resultIdx < linesToProcess.length) {
                   const originalIndex = linesToProcess[resultIdx].originalIndex;
                   finalItems[originalIndex] = item;
 
-                  // AUTOMATICALLY LEARN FROM AI MATCHES
                   if (item.catalogItem) {
                     saveLearnedMatch(item.originalRequest, item.catalogItem);
-                    item.isLearned = true; // Mark as learned immediately in UI
+                    item.isLearned = true;
                   }
               }
           });
           
-          // Refresh learned matches state since we just added a bunch
           refreshLearnedMatches();
       }
 
-      // Filter out any empty slots
       const processedItems = finalItems.filter(Boolean);
       setItems(processedItems);
       setStatus(QuoteStatus.COMPLETE);
-
-      // AUTOMATIC HISTORY SAVE
-      if (processedItems.length > 0) {
-        saveQuoteToHistory(customerName, processedItems, inputText);
-        refreshHistory();
-      }
+      setCurrentQuoteId(null);
+      setLastSavedTime(null);
       
     } catch (error) {
       console.error(error);
@@ -234,10 +266,15 @@ function App() {
   };
 
   const handleClear = () => {
+    if (items.length > 0 && !currentQuoteId) {
+        if (!confirm("Deseja limpar o orçamento atual? Dados não salvos serão perdidos.")) return;
+    }
     setItems([]);
     setInputText('');
     setCustomerName(''); 
     setStatus(QuoteStatus.IDLE);
+    setCurrentQuoteId(null);
+    setLastSavedTime(null);
   };
 
   const handleDeleteItem = (id: string) => {
@@ -246,6 +283,21 @@ function App() {
 
   const handleQuantityChange = (id: string, qty: number) => {
     setItems(prev => prev.map(i => i.id === id ? { ...i, quantity: qty } : i));
+  };
+
+  const handlePriceChange = (itemId: string, newPrice: number) => {
+    setItems(prev => prev.map(i => {
+      if (i.id === itemId && i.catalogItem) {
+        return {
+          ...i,
+          catalogItem: {
+            ...i.catalogItem,
+            price: newPrice
+          }
+        };
+      }
+      return i;
+    }));
   };
 
   const handleProductChange = (itemId: string, catalogId: string) => {
@@ -283,19 +335,42 @@ function App() {
       setItems(quote.items);
       setInputText(quote.originalInputText);
       setCustomerName(quote.customerName);
+      setCurrentQuoteId(quote.id); 
+      setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
       setStatus(QuoteStatus.COMPLETE);
   };
 
   const handleDeleteHistory = (id: string) => {
       deleteQuoteFromHistory(id);
       refreshHistory();
+      if (currentQuoteId === id) {
+          setCurrentQuoteId(null);
+      }
   };
 
   const handleExportExcel = () => {
+    saveCurrentQuoteState();
     const clipboardText = generateExcelClipboard(items);
     navigator.clipboard.writeText(clipboardText);
-    alert("Dados copiados! Abra o Excel e pressione Ctrl+V");
+    alert("Orçamento salvo e dados copiados! Abra o Excel e pressione Ctrl+V");
   };
+
+  const handleOpenExportModal = () => {
+      saveCurrentQuoteState();
+      setIsExportModalOpen(true);
+  };
+
+  // Loading screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-yellow-400 mx-auto mb-4"></div>
+          <p className="text-white font-medium">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col">
@@ -311,6 +386,31 @@ function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2 md:gap-4">
+             {currentUser && (
+               <div className="hidden md:flex items-center gap-2 text-sm border-r border-slate-700 pr-4">
+                 <div className="bg-yellow-400 p-1.5 rounded-full">
+                   <User className="w-4 h-4 text-slate-900" />
+                 </div>
+                 <span className="text-slate-300">{currentUser.displayName || currentUser.email}</span>
+               </div>
+             )}
+
+             <button 
+                onClick={() => setIsManualQuoteModalOpen(true)}
+                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors border border-slate-700"
+             >
+                 <Edit3 className="w-4 h-4" />
+                 Orçamento Manual
+             </button>
+
+             <button 
+                onClick={() => setIsDashboardModalOpen(true)}
+                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
+             >
+                 <BarChart3 className="w-4 h-4" />
+                 Dashboard
+             </button>
+
              <button 
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
@@ -335,6 +435,14 @@ function App() {
                  Configurações
              </button>
 
+             <button
+                onClick={handleLogout}
+                className="text-slate-300 hover:text-red-400 flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
+                title="Sair"
+             >
+                <LogOut className="w-4 h-4" />
+             </button>
+
              {status === QuoteStatus.COMPLETE && (
                 <div className="hidden md:flex items-center gap-2 text-sm border-l border-slate-700 pl-4">
                     <span className="text-green-400 font-bold">{matchStats[0]?.value || 0} Encontrados</span>
@@ -355,7 +463,7 @@ function App() {
               onUpload={handleUpload} 
               savedCatalogDate={catalogDate} 
               savedCount={catalog.length} 
-              onEditCatalog={() => setIsCatalogModalOpen(true)} // Fix: Passed required prop
+              onEditCatalog={() => setIsCatalogModalOpen(true)}
             />
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
@@ -412,10 +520,8 @@ function App() {
           {/* Right Column: Results */}
           <div className="lg:col-span-8 space-y-6">
             
-            {/* Stats / Summary Header */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between items-end gap-6 relative overflow-hidden">
                
-               {/* Background Decoration */}
                <div className="absolute top-0 left-0 p-6 flex items-center gap-4 z-10">
                   <div className="bg-yellow-50 p-3 rounded-full">
                      <Calculator className="w-8 h-8 text-yellow-600" />
@@ -423,19 +529,34 @@ function App() {
                   <div>
                      <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total do Orçamento</p>
                      <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalValue)}</p>
-                     {customerName && <p className="text-sm text-slate-400 mt-1 font-medium">Cliente: {customerName}</p>}
+                     <div className="flex items-center gap-2 mt-1">
+                        {customerName && <span className="text-sm text-slate-600 font-medium">Cliente: {customerName}</span>}
+                        {lastSavedTime && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">Salvo às {lastSavedTime}</span>}
+                     </div>
                   </div>
                </div>
 
                <div className="flex flex-col items-end gap-3 z-10 mt-24 md:mt-0 w-full md:w-auto">
                    <div className="flex gap-2 w-full md:w-auto justify-end">
                        {items.length > 0 && (
-                          <button 
-                            onClick={handleClear}
-                            className="text-slate-500 hover:text-red-600 hover:bg-red-50 px-4 py-2 rounded transition-colors text-sm font-medium flex items-center gap-2"
-                          >
-                             <Trash className="w-4 h-4" /> Limpar
-                          </button>
+                          <>
+                            <button 
+                                onClick={handleClear}
+                                className="text-slate-500 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded transition-colors text-sm font-medium flex items-center gap-1"
+                                title="Limpar tudo"
+                            >
+                                <Trash className="w-4 h-4" />
+                            </button>
+
+                            <button
+                                onClick={saveCurrentQuoteState}
+                                className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 px-4 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors shadow-sm text-sm"
+                                title="Salvar no Histórico"
+                            >
+                                <Save className="w-4 h-4" />
+                                Salvar
+                            </button>
+                          </>
                        )}
                        
                        <button
@@ -448,7 +569,7 @@ function App() {
                        </button>
 
                        <button
-                          onClick={() => setIsExportModalOpen(true)}
+                          onClick={handleOpenExportModal}
                           disabled={items.length === 0}
                           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg font-semibold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm text-sm"
                        >
@@ -458,7 +579,6 @@ function App() {
                    </div>
                </div>
                
-               {/* Pie Chart */}
                {items.length > 0 && (
                   <div className="absolute right-6 top-6 h-16 w-16 opacity-20 md:opacity-100 md:relative md:h-16 md:w-16 md:top-auto md:right-auto hidden lg:block">
                       <ResponsiveContainer width="100%" height="100%">
@@ -480,10 +600,8 @@ function App() {
                )}
             </div>
 
-            {/* Not Found Section */}
             <NotFoundItems items={notFoundItemsList} />
 
-            {/* Main Table */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
                 <h3 className="font-bold text-slate-700">Itens do Pedido</h3>
@@ -528,6 +646,7 @@ function App() {
                           onChangeQuantity={handleQuantityChange}
                           onChangeProduct={handleProductChange}
                           onConfirmMatch={handleConfirmMatch}
+                          onChangePrice={handlePriceChange}
                         />
                       ))
                     )}
@@ -564,7 +683,6 @@ function App() {
         />
 
         {/* Catalog Manager Modal */}
-        {/* Fix: Added CatalogManagerModal component */}
         <CatalogManagerModal 
             isOpen={isCatalogModalOpen}
             onClose={() => setIsCatalogModalOpen(false)}
@@ -573,12 +691,39 @@ function App() {
             learnedMatches={learnedMatches}
         />
 
+        {/* Dashboard Modal */}
+        <DashboardModal 
+            isOpen={isDashboardModalOpen}
+            onClose={() => setIsDashboardModalOpen(false)}
+            history={quoteHistory}
+        />
+
+        {/* Manual Quote Modal */}
+        <ManualQuoteModal 
+            isOpen={isManualQuoteModalOpen}
+            onClose={() => setIsManualQuoteModalOpen(false)}
+            catalog={catalog}
+            onSaveQuote={(items, customerName) => {
+              setItems(items);
+              setCustomerName(customerName);
+              setStatus(QuoteStatus.COMPLETE);
+              setIsManualQuoteModalOpen(false);
+            }}
+        />
+
         {/* Export / Print Modal */}
         <ExportModal 
             isOpen={isExportModalOpen}
             onClose={() => setIsExportModalOpen(false)}
             items={items}
             totalValue={totalValue}
+            customerName={customerName}
+        />
+
+        {/* Auth Modal */}
+        <AuthModal 
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
         />
         
       </main>
