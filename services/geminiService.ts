@@ -2,13 +2,37 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { CatalogItem, ProcessedResult } from "../types";
 import { getConversionPromptInstructions } from "../utils/conversionRules";
 
-// Initialize API Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// DEBUG - Verificar variáveis de ambiente
+console.log("🔍 GEMINI DEBUG - INÍCIO");
+console.log("Todas as env vars:", import.meta.env);
+console.log("VITE_GEMINI_API_KEY:", import.meta.env.VITE_GEMINI_API_KEY);
+console.log("Chave existe?", !!import.meta.env.VITE_GEMINI_API_KEY);
+console.log("Começa com AIza?", import.meta.env.VITE_GEMINI_API_KEY?.startsWith("AIza"));
+console.log("Tamanho da chave:", import.meta.env.VITE_GEMINI_API_KEY?.length);
+console.log("🔍 GEMINI DEBUG - FIM");
+
+// Initialize API Client com variável de ambiente do Vite
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+
+// Validação da API Key
+if (!apiKey) {
+  console.error("❌ ERRO: VITE_GEMINI_API_KEY não está configurada no arquivo .env");
+  console.error("Adicione a linha: VITE_GEMINI_API_KEY=sua-chave-aqui");
+} else {
+  console.log("✅ API Key do Gemini carregada com sucesso!");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || "PLACEHOLDER" });
 
 export const processOrderWithGemini = async (
   catalog: CatalogItem[],
   orderText: string
 ): Promise<ProcessedResult> => {
+  
+  // Validação adicional antes de fazer a requisição
+  if (!apiKey) {
+    throw new Error("Chave de API do Gemini não configurada. Adicione VITE_GEMINI_API_KEY no arquivo .env");
+  }
   
   // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
   const catalogString = catalog
