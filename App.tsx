@@ -721,10 +721,13 @@ function App() {
         />
 
         {/* Auth Modal */}
-        <AuthModal 
-            isOpen={isAuthModalOpen}
-            onClose={() => setIsAuthModalOpen(false)}
-        />
+<AuthModal 
+    isOpen={isAuthModalOpen}
+    onClose={() => setIsAuthModalOpen(false)}
+    onSuccess={() => {
+        console.log('Login realizado com sucesso!');
+    }}
+/>
         
       </main>
     </div>
