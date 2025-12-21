@@ -6,13 +6,13 @@ import { getStorage } from "firebase/storage";
 
 // ✅ CONFIGURAÇÃO CORRETA - PROJETO PEDIDOS-MAIN
 const firebaseConfig = {
-  apiKey: "AIzaSyDIGp1HmcgFwQcfqmzXzbHem5K2IpX5SYw",
-  authDomain: "pedidos-main.firebaseapp.com",
-  projectId: "pedidos-main",
-  storageBucket: "pedidos-main.firebasestorage.app",
-  messagingSenderId: "504840452832",
-  appId: "1:504840452832:web:8e45ad413f13c615dcee85",
-  measurementId: "G-7R919Y7B6R"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: "G-7R919Y7B6R" // Pode manter este se quiser, ele não é uma senha.
 };
 
 console.log("🔧 Firebase Config:", firebaseConfig);
