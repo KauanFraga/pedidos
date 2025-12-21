@@ -1,150 +1,303 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { CatalogItem, ProcessedResult } from "../types";
-import { getConversionPromptInstructions } from "../utils/conversionRules";
+import { CatalogItem, QuoteItem } from '../types';
+import { applyConversions, getConversionPromptInstructions } from '../utils/conversionRules';
 
-// DEBUG - Verificar variáveis de ambiente
-console.log("🔍 GEMINI DEBUG - INÍCIO");
-console.log("Todas as env vars:", import.meta.env);
-console.log("VITE_GEMINI_API_KEY:", import.meta.env.VITE_GEMINI_API_KEY);
-console.log("Chave existe?", !!import.meta.env.VITE_GEMINI_API_KEY);
-console.log("Começa com AIza?", import.meta.env.VITE_GEMINI_API_KEY?.startsWith("AIza"));
-console.log("Tamanho da chave:", import.meta.env.VITE_GEMINI_API_KEY?.length);
-console.log("🔍 GEMINI DEBUG - FIM");
+const GEMINI_API_KEY_STORAGE = 'gemini_api_key';
 
-// Initialize API Client com variável de ambiente do Vite
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+// ==================== GESTÃO DA CHAVE DE API ====================
 
-// Validação da API Key
-if (!apiKey) {
-  console.error("❌ ERRO: VITE_GEMINI_API_KEY não está configurada no arquivo .env");
-  console.error("Adicione a linha: VITE_GEMINI_API_KEY=sua-chave-aqui");
-} else {
-  console.log("✅ API Key do Gemini carregada com sucesso!");
+export function getGeminiApiKey(): string | null {
+  return localStorage.getItem(GEMINI_API_KEY_STORAGE);
 }
 
-const ai = new GoogleGenAI({ apiKey: apiKey || "PLACEHOLDER" });
+export function setGeminiApiKey(apiKey: string): void {
+  localStorage.setItem(GEMINI_API_KEY_STORAGE, apiKey);
+}
 
-export const processOrderWithGemini = async (
-  catalog: CatalogItem[],
-  orderText: string
-): Promise<ProcessedResult> => {
-  
-  // Validação adicional antes de fazer a requisição
-  if (!apiKey) {
-    throw new Error("Chave de API do Gemini não configurada. Adicione VITE_GEMINI_API_KEY no arquivo .env");
+export function hasGeminiApiKey(): boolean {
+  return !!getGeminiApiKey();
+}
+
+// ==================== 🔧 FUNÇÃO AUXILIAR: PARSE SEGURO DE NÚMEROS ====================
+
+function safeParseNumber(value: any, defaultValue: number = 1): number {
+  // Se já for um número válido, retorna
+  if (typeof value === 'number' && !isNaN(value) && isFinite(value)) {
+    return value;
   }
   
-  // Optimization: If catalog is huge, we might need to truncate or use a retrieval tool.
+  // Se for string, tenta converter
+  if (typeof value === 'string') {
+    // Remove espaços e vírgulas (caso venha formato brasileiro)
+    const cleaned = value.trim().replace(/,/g, '.');
+    const parsed = parseFloat(cleaned);
+    
+    if (!isNaN(parsed) && isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  
+  // Se falhou, retorna valor padrão
+  console.warn(`⚠️ Falha ao converter "${value}" para número. Usando padrão: ${defaultValue}`);
+  return defaultValue;
+}
+
+// ==================== PROCESSAMENTO COM GEMINI ====================
+
+export async function processOrderWithGemini(
+  catalog: CatalogItem[],
+  orderText: string
+): Promise<{ items: QuoteItem[] }> {
+  
+  // Verificar se tem chave configurada
+  const API_KEY = getGeminiApiKey();
+  
+  if (!API_KEY) {
+    throw new Error('⚠️ Chave de API do Gemini não configurada!\n\nVá em Configurações → Dados da Loja para adicionar sua chave gratuita.');
+  }
+
+  console.log('🤖 Iniciando processamento com Gemini 2.0...');
+  console.log('📦 Catálogo:', catalog.length, 'itens');
+  console.log('📝 Pedido:', orderText);
+
+  // Preparar catálogo no formato: índice|descrição|preço
   const catalogString = catalog
-    .map((item, index) => `Index: ${index} | Item: ${item.description} | Price: ${item.price}`)
+    .map((item, index) => `${index}|${item.description}|R$ ${item.price.toFixed(2)}`)
     .join('\n');
 
-  const model = "gemini-2.5-flash";
-  
   const conversionInstructions = getConversionPromptInstructions();
 
-  const systemInstruction = `
-    You are an expert sales assistant at an electrical supply store "KF Elétrica".
-    Your task is to map a customer's unstructured order list to our product catalog.
-    
-    CRITICAL BRAND & MATERIAL KNOWLEDGE:
-    - Brands often abbreviated: "MG" = Margirius, "LIZ" = Tramontina Liz, "ARIA" = Tramontina Aria, "EBONY" = Margirius Preto Brilhante.
-    - Colors for Conduletes/Eletrodutos/Luvas/Curvas: "CZ" or "CINZA" (Grey), "BR" or "BRANCO" (White), "PT" or "PRETO" (Black), "AL" or "ALUMINIO".
-    - Synonyms: "TOMADA" might match "MÓDULO" or "MOD" in the catalog if a complete set isn't found.
-    
-    DEFAULT ATTRIBUTES:
-    - CABLES/WIRES ("cabo", "fio", "flex"): If the customer DOES NOT specify a color, YOU MUST MATCH TO BLACK ("PT", "PRETO").
-      Example: "100m cabo 2.5mm" -> Match to "CABO FLEX 2,5MM PT" or "PRETO".
-    
-    CONTEXT & PATTERN INFERENCE (VERY IMPORTANT):
-    - The customer list generally follows a strict theme based on the first few items.
-    - BRAND INFERENCE: If the first item of a category (e.g., switches/sockets) specifies a brand (e.g., "MG" or "LIZ"), assume ALL subsequent ambiguous items in that category are the SAME BRAND. 
-      * Example: If Item 1 is "Placa 4x2 MG", and Item 2 is just "Interruptor Simples", you MUST match Item 2 to a "MG" product.
-    - MATERIAL/COLOR INFERENCE: If the first item of a conduit infrastructure (e.g., "eletroduto") specifies a color/material (e.g., "PRETO", "CINZA", "ALUMINIO"), assume ALL subsequent fittings (curvas, luvas, buchas) are the SAME COLOR/MATERIAL.
-      * Example: If Item 1 is "Eletroduto 3/4 Preto", and Item 2 is "Curva 90", you MUST match Item 2 to a "Preto" product.
+  // Instruções para o Gemini
+  const systemInstruction = `Você é um assistente especializado em materiais elétricos da loja "KF Elétrica".
 
-    ${conversionInstructions}
+CONHECIMENTO DE MARCAS E MATERIAIS:
+- Marcas: "MG" = Margirius, "LIZ" = Tramontina Liz
+- Cores: "CZ"/"CINZA", "BR"/"BRANCO", "PT"/"PRETO", "AZ"/"AZUL", "VM"/"VERMELHO", "VD"/"VERDE", "AM"/"AMARELO"
+- COR PADRÃO para cabos: PRETO se não especificado
 
-    Rules:
-    1. Analyze the "CUSTOMER REQUEST" line by line. If a line contains delimiters like "-" or ";" with multiple items, split them.
-    2. For EACH item in the request, return an object in the output array in the EXACT SAME ORDER.
-    3. Identify the Quantity and the Product. 
-       - Extract number strictly. If "100m", quantity is 100. 
-       - If "- 1 item", quantity is 1. 
-       - If no quantity is found, DEFAULT TO 1.
-    4. Find the best matching product in the provided Catalog using fuzzy matching logic AND the Context/Pattern Inference rules above.
-    5. If a product is found, set "catalogIndex" to the Index provided in the catalog text.
-    6. If a product is NOT found in the catalog with reasonable confidence, set "catalogIndex" to -1.
-  `;
+CONVERSÕES DE UNIDADES:
+${conversionInstructions}
 
-  const prompt = `
-    CATALOG:
-    ${catalogString}
+REGRAS DE MAPEAMENTO:
+1. Analise cada linha do pedido do cliente
+2. Extraia a quantidade (padrão: 1 se não especificado)
+3. Encontre o produto correspondente no catálogo usando similaridade semântica
+4. Retorne o ÍNDICE do produto no catálogo (-1 se não encontrar)
+5. Registre conversões aplicadas (ex: "1 rolo → 100m")
 
-    CUSTOMER REQUEST:
-    ${orderText}
-  `;
+⚠️ IMPORTANTE: O campo "quantity" deve SEMPRE ser um NÚMERO VÁLIDO, nunca string ou null.
+
+FORMATO DE RESPOSTA (JSON PURO, sem markdown):
+{
+  "mappedItems": [
+    {
+      "originalRequest": "texto exato da linha do pedido",
+      "quantity": 10.5,
+      "catalogIndex": 42,
+      "conversionLog": "explicação da conversão ou null"
+    }
+  ]
+}
+
+EXEMPLO DE RESPOSTA CORRETA:
+{
+  "mappedItems": [
+    {
+      "originalRequest": "22 metros de cabo 16 azul",
+      "quantity": 22,
+      "catalogIndex": 15,
+      "conversionLog": null
+    },
+    {
+      "originalRequest": "2 rolos de cabo 2.5mm preto",
+      "quantity": 200,
+      "catalogIndex": 8,
+      "conversionLog": "2 rolos × 100m = 200m"
+    }
+  ]
+}
+
+IMPORTANTE:
+- Retorne APENAS o JSON, sem texto adicional
+- Se não encontrar produto, use catalogIndex: -1
+- O campo "quantity" DEVE ser um número (ex: 10, 22.5, 100)
+- NUNCA use string para quantity (ex: "10" está ERRADO, use 10)
+- Seja preciso na identificação`;
+
+  const prompt = `CATÁLOGO DISPONÍVEL (formato: índice|descrição|preço):
+${catalogString}
+
+PEDIDO DO CLIENTE:
+${orderText}
+
+Analise o pedido e retorne o JSON com os itens mapeados.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            mappedItems: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  originalRequest: { type: Type.STRING },
-                  quantity: { type: Type.NUMBER },
-                  catalogIndex: { type: Type.INTEGER, description: "Index from catalog if found, -1 if not found" },
-                  conversionLog: { type: Type.STRING, description: "Explanation if unit conversion was applied (e.g., '1 rolo = 100m'), otherwise null" }
-                },
-                required: ["originalRequest", "quantity", "catalogIndex"]
-              }
-            }
+    console.log('📡 Enviando requisição para Gemini 2.0 API...');
+    
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`,
+      {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json" 
+        },
+        body: JSON.stringify({
+          contents: [{ 
+            parts: [{ 
+              text: systemInstruction + "\n\n" + prompt 
+            }] 
+          }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 8192,
+            responseMimeType: "application/json"
           }
+        })
+      }
+    );
+
+    console.log('📥 Status da resposta:', response.status);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Erro na API do Gemini:', errorData);
+      
+      if (response.status === 400) {
+        throw new Error('🔑 Chave de API inválida ou expirada.\n\nVerifique sua chave nas Configurações ou gere uma nova em:\naistudio.google.com/app/apikey');
+      }
+      if (response.status === 404) {
+        throw new Error('❌ Modelo não encontrado.\n\nSua chave pode não ter acesso ao Gemini 2.0.\n\nTente gerar uma nova chave em:\naistudio.google.com/app/apikey');
+      }
+      if (response.status === 429) {
+        throw new Error('⏱️ Limite de requisições atingido.\n\nAguarde alguns minutos e tente novamente.');
+      }
+      if (response.status === 403) {
+        throw new Error('🚫 Acesso negado.\n\nVerifique se sua chave de API está correta.');
+      }
+      
+      throw new Error(`Erro na API do Gemini: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('📊 Resposta completa da API:', result);
+
+    // Validação robusta da resposta
+    if (!result.candidates || result.candidates.length === 0) {
+      console.error('❌ Resposta sem candidates:', result);
+      throw new Error('Resposta vazia da IA. Tente novamente.');
+    }
+
+    const candidate = result.candidates[0];
+    
+    if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+      console.error('❌ Candidate sem content:', candidate);
+      throw new Error('Resposta sem conteúdo. Tente novamente.');
+    }
+
+    const text = candidate.content.parts[0].text;
+    console.log('📝 Texto extraído da resposta:', text);
+
+    if (!text) {
+      throw new Error('Texto vazio na resposta da IA.');
+    }
+
+    // Parse do JSON
+    let data;
+    try {
+      // Limpar possível markdown (```json ... ```)
+      const cleanedText = text.replace(/```json\n?|\n?```/g, '').trim();
+      data = JSON.parse(cleanedText);
+    } catch (parseError) {
+      console.error('❌ Erro ao fazer parse do JSON:', parseError);
+      console.error('📄 Texto recebido:', text);
+      throw new Error('Resposta da IA em formato inválido. Tente novamente.');
+    }
+
+    console.log('✅ JSON parseado com sucesso:', data);
+
+    // Validação da estrutura
+    if (!data.mappedItems || !Array.isArray(data.mappedItems)) {
+      console.error('❌ Estrutura inválida:', data);
+      throw new Error('Formato de resposta inválido.');
+    }
+
+    // 🔧 PROCESSAMENTO CORRIGIDO COM VALIDAÇÃO ROBUSTA
+    const items: QuoteItem[] = data.mappedItems.map((item: any, index: number) => {
+      console.log(`\n🔍 Processando item ${index + 1}:`, item);
+      
+      // 1. Validar e converter índice do catálogo
+      const catalogIndex = parseInt(item.catalogIndex);
+      const isFound = catalogIndex !== -1 && 
+                      catalogIndex >= 0 && 
+                      catalogIndex < catalog.length;
+      
+      const catalogItem = isFound ? catalog[catalogIndex] : null;
+      
+      // 2. 🔧 CONVERSÃO SEGURA DA QUANTIDADE
+      let quantity = safeParseNumber(item.quantity, 1);
+      console.log(`  📊 Quantidade inicial: ${quantity} (tipo: ${typeof item.quantity})`);
+      
+      let conversionLog = item.conversionLog || '';
+
+      // 3. Aplicar conversões locais adicionais se necessário
+      if (item.originalRequest) {
+        const conversion = applyConversions(item.originalRequest, quantity);
+        if (conversion.log) {
+          quantity = conversion.quantity; // Usar a quantidade já convertida
+          console.log(`  🔄 Após conversão: ${quantity}`);
+          
+          // Combinar logs se houver
+          conversionLog = conversionLog 
+            ? `${conversionLog}; ${conversion.log}` 
+            : conversion.log;
         }
       }
-    });
 
-    const text = response.text;
-    if (!text) throw new Error("No response from Gemini");
-
-    const data = JSON.parse(text);
-    
-    // Map back to internal types
-    const items = (data.mappedItems || []).map((item: any) => {
-      // Check if index is valid and not -1
-      const isFound = item.catalogIndex !== -1 && item.catalogIndex !== null && catalog[item.catalogIndex];
-      const catalogItem = isFound ? catalog[item.catalogIndex] : null;
-
-      // Strict Quantity Sanitization
-      let parsedQty = parseFloat(item.quantity);
-      if (isNaN(parsedQty) || parsedQty <= 0) {
-         parsedQty = 1; // Default fallback
+      // 4. Validação final: garantir que quantity é um número válido
+      if (isNaN(quantity) || !isFinite(quantity) || quantity <= 0) {
+        console.warn(`  ⚠️ Quantidade inválida detectada: ${quantity}. Usando padrão: 1`);
+        quantity = 1;
       }
+
+      console.log(`  ✅ Quantidade final: ${quantity}`);
+      console.log(`  📦 Produto: ${catalogItem?.description || 'NÃO ENCONTRADO'}`);
 
       return {
         id: crypto.randomUUID(),
-        quantity: parsedQty,
-        originalRequest: item.originalRequest,
-        catalogItem: catalogItem,
-        conversionLog: item.conversionLog || undefined
+        quantity,
+        originalRequest: item.originalRequest || 'Item desconhecido',
+        catalogItem,
+        isLearned: false,
+        conversionLog: conversionLog || undefined
       };
     });
 
-    return {
-      items: items
-    };
+    console.log('\n🎉 Processamento concluído com sucesso!');
+    console.log('📊 Total de itens processados:', items.length);
+    console.log('✅ Itens encontrados:', items.filter(i => i.catalogItem).length);
+    console.log('❌ Itens não encontrados:', items.filter(i => !i.catalogItem).length);
+    
+    // 🔧 LOG DETALHADO DAS QUANTIDADES
+    console.log('\n📋 Resumo das quantidades:');
+    items.forEach((item, idx) => {
+      console.log(`  ${idx + 1}. ${item.originalRequest}: ${item.quantity} ${item.catalogItem ? '✅' : '❌'}`);
+    });
 
-  } catch (error) {
-    console.error("Gemini Error:", error);
+    return { items };
+
+  } catch (error: any) {
+    console.error('❌ Erro completo no processamento:', error);
+    
+    // Tratamento de erros específicos
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      throw new Error('🌐 Erro de conexão.\n\nVerifique sua internet e tente novamente.');
+    }
+    
+    if (error instanceof SyntaxError) {
+      throw new Error('⚠️ Erro ao processar resposta da IA.\n\nTente novamente.');
+    }
+    
+    // Re-throw com mensagem original se já for um erro tratado
     throw error;
   }
-};
+}

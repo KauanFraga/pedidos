@@ -1,8 +1,8 @@
-
 import React, { useState, useEffect } from 'react';
 import { StoreConfig } from '../types';
 import { getStoreConfig, saveStoreConfig } from '../services/settingsService';
-import { X, Save, Settings, AlertCircle, Image as ImageIcon } from 'lucide-react';
+import { getGeminiApiKey, setGeminiApiKey as saveGeminiKey } from '../services/geminiService';
+import { X, Save, Settings, AlertCircle, Image as ImageIcon, Key } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,10 +11,12 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [config, setConfig] = useState<StoreConfig>(getStoreConfig());
+  const [geminiApiKey, setGeminiApiKeyState] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setConfig(getStoreConfig());
+      setGeminiApiKeyState(getGeminiApiKey() || '');
     }
   }, [isOpen]);
 
@@ -24,7 +26,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleSave = () => {
     saveStoreConfig(config);
-    alert('Configurações salvas com sucesso!');
+    
+    // Salvar chave do Gemini
+    if (geminiApiKey.trim()) {
+      saveGeminiKey(geminiApiKey.trim());
+      alert('✅ Configurações salvas com sucesso!\n\n🤖 Chave de API do Gemini atualizada.');
+    } else {
+      alert('✅ Configurações salvas com sucesso!');
+    }
+    
     onClose();
   };
 
@@ -46,6 +56,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         <div className="p-6 overflow-y-auto space-y-6">
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               
+              {/* ============ CHAVE DA API DO GEMINI ============ */}
+              <div className="md:col-span-2 bg-gradient-to-br from-purple-50 to-blue-50 p-5 rounded-xl border-2 border-purple-200 shadow-sm">
+                 <label className="block text-sm font-bold text-purple-900 mb-2 flex items-center gap-2">
+                    <Key className="w-5 h-5 text-purple-600" />
+                    🤖 Chave da API do Google Gemini (OBRIGATÓRIO para IA)
+                 </label>
+                 <input 
+                    type="password" 
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKeyState(e.target.value)}
+                    placeholder="Cole sua chave de API aqui (ex: AIzaSy...)"
+                    className="w-full p-3 border-2 border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none text-sm font-mono bg-white"
+                 />
+                 <div className="mt-3 text-xs text-purple-800 bg-white/70 p-3 rounded-lg">
+                    <p className="font-semibold mb-2">📌 Como obter sua chave GRATUITA:</p>
+                    <ol className="list-decimal list-inside space-y-1 ml-2">
+                      <li>Acesse: <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline hover:text-purple-900 font-medium">aistudio.google.com/app/apikey</a></li>
+                      <li>Faça login com sua conta Google</li>
+                      <li>Clique em <strong>"Create API Key"</strong></li>
+                      <li>Copie a chave gerada e cole aqui</li>
+                      <li>Clique em <strong>"Salvar Configurações"</strong> abaixo</li>
+                    </ol>
+                    <p className="mt-2 text-purple-700 font-medium">
+                      ⚡ A chave é gratuita e necessária para processar pedidos com Inteligência Artificial!
+                    </p>
+                 </div>
+              </div>
+
               {/* Logo Section */}
               <div className="md:col-span-2">
                  <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
@@ -153,7 +191,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
            </button>
            <button 
              onClick={handleSave}
-             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2"
+             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-sm"
            >
              <Save className="w-4 h-4" />
              Salvar Configurações

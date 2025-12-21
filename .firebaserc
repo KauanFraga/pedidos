@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "pedidos-main"
+  },
+  "targets": {
+    "pedidos-main": {
+      "hosting": {
+        "orceletrico": [
+          "www.orceletrico.com.br"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

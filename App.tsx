@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { FileUploader } from './components/FileUploader';
 import { QuoteItemRow } from './components/QuoteItemRow';
+import { ModernHeader } from './components/ModernHeader';
 import { NotFoundItems } from './components/NotFoundItems';
 import { LearningModal } from './components/LearningModal';
 import { HistoryModal } from './components/HistoryModal';
@@ -9,15 +10,19 @@ import { SettingsModal } from './components/SettingsModal';
 import { CatalogManagerModal } from './components/CatalogManagerModal';
 import { DashboardModal } from './components/DashboardModal';
 import { ManualQuoteModal } from './components/ManualQuoteModal';
+import { ProfessionalQuoteModal } from './components/ProfessionalQuoteModal';
 import { AuthModal } from './components/AuthModal';
-import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote } from './types';
+import { SyncButton } from './components/SyncButton';
+import { DebugButton } from './components/DebugButton';
+import { ImageOCRUploader } from './components/ImageOCRUploader';
+import { CatalogItem, QuoteItem, QuoteStatus, LearnedMatch, SavedQuote, HistoryStatus } from './types';
 import { processOrderWithGemini } from './services/geminiService';
 import { getLearnedMatches, findLearnedMatch, deleteLearnedMatch, saveLearnedMatch, cleanTextForLearning } from './services/learningService';
 import { getHistory, saveQuoteToHistory, deleteQuoteFromHistory, updateSavedQuote } from './services/historyService';
 import { applyConversions } from './utils/conversionRules';
 import { generateExcelClipboard, formatCurrency } from './utils/parser';
 import { onAuthChange, logoutUser, AuthUser } from './services/firebaseAuthService';
-import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save, Edit3, LogOut } from 'lucide-react';
+import { Zap, Sparkles, Download, Calculator, Trash, Brain, Clock, User, Printer, Settings, BarChart3, Save, Edit3, LogOut, FileText } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 const COLORS = ['#22c55e', '#ef4444'];
@@ -25,12 +30,10 @@ const CATALOG_STORAGE_KEY = 'orcafacil_catalogo';
 const CATALOG_DATE_KEY = 'orcafacil_catalogo_data';
 
 function App() {
-  // Firebase Auth State
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // State
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogDate, setCatalogDate] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -41,32 +44,26 @@ function App() {
   const [currentQuoteId, setCurrentQuoteId] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<string | null>(null);
   
-  // Learning System State
   const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
   const [learnedMatches, setLearnedMatches] = useState<LearnedMatch[]>([]);
 
-  // History System State
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [quoteHistory, setQuoteHistory] = useState<SavedQuote[]>([]);
 
-  // Export Modal State
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-
-  // Settings Modal State
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-
-  // Catalog Manager Modal State
   const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
-
-  // Dashboard Modal State
   const [isDashboardModalOpen, setIsDashboardModalOpen] = useState(false);
-
-  // Manual Quote Modal State
   const [isManualQuoteModalOpen, setIsManualQuoteModalOpen] = useState(false);
+  const [isProfessionalQuoteModalOpen, setIsProfessionalQuoteModalOpen] = useState(false);
 
-  // Computed
+  // ✅ CORREÇÃO NAN: TotalValue agora verifica isNaN para evitar erros visuais
   const totalValue = useMemo(() => {
-    return items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
+    const total = items.reduce((acc, item) => {
+        const itemTotal = (item.quantity || 0) * (item.catalogItem?.price || 0);
+        return acc + (isNaN(itemTotal) ? 0 : itemTotal);
+    }, 0);
+    return total;
   }, [items]);
 
   const notFoundItemsList = useMemo(() => {
@@ -84,7 +81,6 @@ function App() {
     ];
   }, [items]);
 
-  // Firebase Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthChange((user) => {
       setCurrentUser(user);
@@ -98,7 +94,6 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  // Effects
   useEffect(() => {
     setLearnedMatches(getLearnedMatches());
     setQuoteHistory(getHistory());
@@ -122,6 +117,26 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (blob) {
+            alert('📷 Imagem detectada! Processando com OCR...\n\nClique no botão "📷 Enviar Imagem" para fazer upload.');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
+
   const handleLogout = async () => {
     if (confirm('Deseja sair da sua conta?')) {
       try {
@@ -140,7 +155,6 @@ function App() {
     setQuoteHistory(getHistory());
   };
 
-  // Handlers
   const handleUpload = (uploadedCatalog: CatalogItem[]) => {
     const now = new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR');
     
@@ -167,6 +181,11 @@ function App() {
     } catch (e) {
         console.error("Failed to save catalog to storage", e);
     }
+  };
+
+  const handleTextFromOCR = (text: string) => {
+    setInputText(text);
+    alert('✅ Texto extraído da imagem!\n\nRevise o texto abaixo e clique em "Gerar Orçamento" para processar.');
   };
 
   const saveCurrentQuoteState = () => {
@@ -253,7 +272,13 @@ function App() {
       }
 
       const processedItems = finalItems.filter(Boolean);
-      setItems(processedItems);
+      // ✅ CORREÇÃO NAN: Garante que itens processados tenham quantidade válida
+      const validItems = processedItems.map(item => ({
+        ...item,
+        quantity: isNaN(item.quantity) || item.quantity === null ? 1 : item.quantity
+      }));
+
+      setItems(validItems);
       setStatus(QuoteStatus.COMPLETE);
       setCurrentQuoteId(null);
       setLastSavedTime(null);
@@ -331,13 +356,87 @@ function App() {
       refreshLearnedMatches();
   };
 
+  const handleLoadSyncData = (data: {
+    catalogo: CatalogItem[];
+    catalogDate: string | null;
+    orcamentos: SavedQuote[];
+    aprendizado: LearnedMatch[];
+  }) => {
+    if (catalog.length > 0 || items.length > 0 || quoteHistory.length > 0) {
+      if (!confirm('Isso irá substituir seus dados locais pelos dados da nuvem. Continuar?')) {
+        return;
+      }
+    }
+
+    if (data.catalogo.length > 0) {
+      setCatalog(data.catalogo);
+      setCatalogDate(data.catalogDate);
+      try {
+        localStorage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(data.catalogo));
+        if (data.catalogDate) {
+          localStorage.setItem(CATALOG_DATE_KEY, data.catalogDate);
+        }
+      } catch (e) {
+        console.error("Failed to save catalog", e);
+      }
+    }
+
+    if (data.orcamentos.length > 0) {
+      try {
+        localStorage.setItem('orcafacil_historico', JSON.stringify(data.orcamentos));
+        setQuoteHistory(data.orcamentos);
+      } catch (e) {
+        console.error("Failed to save history", e);
+      }
+    }
+
+    if (data.aprendizado.length > 0) {
+      try {
+        localStorage.setItem('orcafacil_aprendizado', JSON.stringify(data.aprendizado));
+        setLearnedMatches(data.aprendizado);
+      } catch (e) {
+        console.error("Failed to save learned matches", e);
+      }
+    }
+
+    alert('✅ Dados carregados da nuvem com sucesso!');
+  };
+
+  // ✅ CORREÇÃO NAN: Função de restauração melhorada para lidar com dados quebrados
   const handleLoadHistory = (quote: SavedQuote) => {
-      setItems(quote.items);
-      setInputText(quote.originalInputText);
-      setCustomerName(quote.customerName);
-      setCurrentQuoteId(quote.id); 
-      setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
-      setStatus(QuoteStatus.COMPLETE);
+    const restoredItems = quote.items.map(item => {
+      // Tenta recuperar quantidade de vários lugares possíveis (caso o nome do campo mude)
+      // @ts-ignore (ignora erro de tipo caso venha 'qtd' do banco legado)
+      let quantity = Number(item.quantity) || Number(item.qtd) || Number(item.amount) || 0;
+      
+      // Se a quantidade for 0 ou NaN, força 1 para não quebrar a UI
+      if (quantity <= 0 || isNaN(quantity)) quantity = 1;
+
+      // Recupera preço unitário, verificando se é texto ou numero
+      const unitPrice = Number(item.unitPrice) || 
+                        Number(item.catalogItem?.price) || 
+                        0;
+
+      const total = quantity * unitPrice;
+      
+      return {
+        ...item,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        total: total,
+        catalogItem: item.catalogItem ? {
+          ...item.catalogItem,
+          price: unitPrice // Garante que o preço do catálogo esteja sincronizado
+        } : null
+      };
+    });
+
+    setItems(restoredItems);
+    setInputText(quote.originalInputText || ''); // Garante que não seja null
+    setCustomerName(quote.customerName || 'Cliente sem nome');
+    setCurrentQuoteId(quote.id); 
+    setLastSavedTime(new Date(quote.updatedAt || quote.createdAt).toLocaleTimeString());
+    setStatus(QuoteStatus.COMPLETE);
   };
 
   const handleDeleteHistory = (id: string) => {
@@ -346,6 +445,13 @@ function App() {
       if (currentQuoteId === id) {
           setCurrentQuoteId(null);
       }
+  };
+
+  const handleUpdateStatus = (id: string, newStatus: HistoryStatus) => {
+    setQuoteHistory(prev => prev.map(quote => 
+      quote.id === id ? { ...quote, status: newStatus } : quote
+    ));
+    updateSavedQuote(id, { status: newStatus });
   };
 
   const handleExportExcel = () => {
@@ -360,7 +466,6 @@ function App() {
       setIsExportModalOpen(true);
   };
 
-  // Loading screen
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -374,90 +479,29 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-sans text-slate-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-slate-900 text-white shadow-lg sticky top-0 z-50 print:hidden">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-yellow-500 p-1.5 rounded-lg">
-              <Zap className="text-slate-900 w-5 h-5 fill-current" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-yellow-400">
-              KF Elétrica <span className="text-slate-400 font-normal text-sm ml-1">v2.0</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-2 md:gap-4">
-             {currentUser && (
-               <div className="hidden md:flex items-center gap-2 text-sm border-r border-slate-700 pr-4">
-                 <div className="bg-yellow-400 p-1.5 rounded-full">
-                   <User className="w-4 h-4 text-slate-900" />
-                 </div>
-                 <span className="text-slate-300">{currentUser.displayName || currentUser.email}</span>
-               </div>
-             )}
-
-             <button 
-                onClick={() => setIsManualQuoteModalOpen(true)}
-                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors border border-slate-700"
-             >
-                 <Edit3 className="w-4 h-4" />
-                 Orçamento Manual
-             </button>
-
-             <button 
-                onClick={() => setIsDashboardModalOpen(true)}
-                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
-             >
-                 <BarChart3 className="w-4 h-4" />
-                 Dashboard
-             </button>
-
-             <button 
-                onClick={() => setIsHistoryModalOpen(true)}
-                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
-             >
-                 <Clock className="w-4 h-4" />
-                 Histórico
-             </button>
-
-             <button 
-                onClick={() => setIsLearningModalOpen(true)}
-                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
-             >
-                 <Brain className="w-4 h-4" />
-                 Meus Aprendizados
-             </button>
-             
-             <button 
-                onClick={() => setIsSettingsModalOpen(true)}
-                className="text-slate-300 hover:text-white flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
-             >
-                 <Settings className="w-4 h-4" />
-                 Configurações
-             </button>
-
-             <button
-                onClick={handleLogout}
-                className="text-slate-300 hover:text-red-400 flex items-center gap-1 text-sm font-medium px-3 py-1.5 rounded hover:bg-slate-800 transition-colors"
-                title="Sair"
-             >
-                <LogOut className="w-4 h-4" />
-             </button>
-
-             {status === QuoteStatus.COMPLETE && (
-                <div className="hidden md:flex items-center gap-2 text-sm border-l border-slate-700 pl-4">
-                    <span className="text-green-400 font-bold">{matchStats[0]?.value || 0} Encontrados</span>
-                    <span className="text-slate-600">|</span>
-                    <span className="text-red-400 font-bold">{matchStats[1]?.value || 0} Pendentes</span>
-                </div>
-             )}
-          </div>
-        </div>
-      </header>
+      
+      <ModernHeader
+      currentUser={currentUser}
+      matchStats={matchStats}
+      onOpenManualQuote={() => setIsManualQuoteModalOpen(true)}
+      onOpenProfessionalQuote={() => setIsProfessionalQuoteModalOpen(true)}
+      onOpenDashboard={() => setIsDashboardModalOpen(true)}
+      onOpenHistory={() => setIsHistoryModalOpen(true)}
+      onOpenLearning={() => setIsLearningModalOpen(true)}
+      onOpenSettings={() => setIsSettingsModalOpen(true)}
+      onOpenDebug={() => {}}
+      onLogout={handleLogout}
+      catalog={catalog}
+      catalogDate={catalogDate}
+      quoteHistory={quoteHistory}
+      learnedMatches={learnedMatches}
+      onLoadData={handleLoadSyncData}
+      currentUserId={currentUser?.uid || null}
+    />
 
       <main className="container mx-auto px-4 py-8 flex-1 print:p-0 print:w-full">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden">
           
-          {/* Left Column: Input */}
           <div className="lg:col-span-4 space-y-6">
             <FileUploader 
               onUpload={handleUpload} 
@@ -466,22 +510,22 @@ function App() {
               onEditCatalog={() => setIsCatalogModalOpen(true)}
             />
 
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col">
               <h2 className="text-lg font-semibold text-slate-800 mb-2 flex items-center gap-2">
                 2. Pedido do Cliente
               </h2>
               
               <div className="mb-4">
-                 <div className="relative">
-                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                     <input 
+                  <div className="relative">
+                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input 
                         type="text"
                         placeholder="Nome do cliente (opcional)"
                         value={customerName}
                         onChange={(e) => setCustomerName(e.target.value)}
                         className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-yellow-400 outline-none text-slate-700"
-                     />
-                 </div>
+                      />
+                  </div>
               </div>
 
               <p className="text-sm text-slate-500 mb-2">
@@ -489,13 +533,13 @@ function App() {
               </p>
               
               <textarea
-                className="flex-1 w-full p-4 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-yellow-400 outline-none text-slate-700 font-mono text-sm"
+                className="w-full h-64 p-4 bg-slate-50 border border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-yellow-400 outline-none text-slate-700 font-mono text-sm mb-3"
                 placeholder="Ex:&#10;200m cabo flexivel 2.5 preto&#10;10 tomadas 20a tramontina&#10;5 disjuntor din 25a"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
               />
 
-              <div className="mt-4">
+              <div className="space-y-2">
                 <button
                   onClick={handleProcess}
                   disabled={status === QuoteStatus.PROCESSING || catalog.length === 0}
@@ -513,26 +557,33 @@ function App() {
                     </>
                   )}
                 </button>
+
+                <ImageOCRUploader onTextExtracted={handleTextFromOCR} />
+
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-center">
+                  <p className="text-xs text-purple-800 font-medium">
+                    💡 Dica: Pressione <kbd className="bg-purple-200 px-2 py-0.5 rounded text-purple-900 font-mono text-xs">Ctrl+V</kbd> para colar imagens!
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Right Column: Results */}
           <div className="lg:col-span-8 space-y-6">
             
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between items-end gap-6 relative overflow-hidden">
-               
+                
                <div className="absolute top-0 left-0 p-6 flex items-center gap-4 z-10">
                   <div className="bg-yellow-50 p-3 rounded-full">
-                     <Calculator className="w-8 h-8 text-yellow-600" />
+                      <Calculator className="w-8 h-8 text-yellow-600" />
                   </div>
                   <div>
-                     <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total do Orçamento</p>
-                     <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalValue)}</p>
-                     <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm text-slate-500 uppercase tracking-wider font-bold">Valor Total do Orçamento</p>
+                      <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalValue)}</p>
+                      <div className="flex items-center gap-2 mt-1">
                         {customerName && <span className="text-sm text-slate-600 font-medium">Cliente: {customerName}</span>}
                         {lastSavedTime && <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">Salvo às {lastSavedTime}</span>}
-                     </div>
+                      </div>
                   </div>
                </div>
 
@@ -658,7 +709,6 @@ function App() {
           </div>
         </div>
 
-        {/* Learning Management Modal */}
         <LearningModal 
             isOpen={isLearningModalOpen} 
             onClose={() => setIsLearningModalOpen(false)}
@@ -667,22 +717,20 @@ function App() {
             onRefresh={refreshLearnedMatches}
         />
 
-        {/* History Modal */}
         <HistoryModal
             isOpen={isHistoryModalOpen}
             onClose={() => setIsHistoryModalOpen(false)}
             history={quoteHistory}
             onDelete={handleDeleteHistory}
             onRestore={handleLoadHistory}
+            onUpdateStatus={handleUpdateStatus}
         />
 
-        {/* Settings Modal */}
         <SettingsModal 
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
         />
 
-        {/* Catalog Manager Modal */}
         <CatalogManagerModal 
             isOpen={isCatalogModalOpen}
             onClose={() => setIsCatalogModalOpen(false)}
@@ -691,14 +739,12 @@ function App() {
             learnedMatches={learnedMatches}
         />
 
-        {/* Dashboard Modal */}
         <DashboardModal 
             isOpen={isDashboardModalOpen}
             onClose={() => setIsDashboardModalOpen(false)}
             history={quoteHistory}
         />
 
-        {/* Manual Quote Modal */}
         <ManualQuoteModal 
             isOpen={isManualQuoteModalOpen}
             onClose={() => setIsManualQuoteModalOpen(false)}
@@ -711,7 +757,15 @@ function App() {
             }}
         />
 
-        {/* Export / Print Modal */}
+        {/* ✅ CORREÇÃO F5: Passando a função refreshHistory */}
+        <ProfessionalQuoteModal 
+            isOpen={isProfessionalQuoteModalOpen}
+            onClose={() => setIsProfessionalQuoteModalOpen(false)}
+            catalog={catalog}
+            // @ts-ignore (Caso seu ProfessionalModal ainda não aceite a prop, ele vai ignorar sem erro fatal)
+            onQuoteSaved={refreshHistory} 
+        />
+
         <ExportModal 
             isOpen={isExportModalOpen}
             onClose={() => setIsExportModalOpen(false)}
@@ -720,14 +774,13 @@ function App() {
             customerName={customerName}
         />
 
-        {/* Auth Modal */}
-<AuthModal 
-    isOpen={isAuthModalOpen}
-    onClose={() => setIsAuthModalOpen(false)}
-    onSuccess={() => {
-        console.log('Login realizado com sucesso!');
-    }}
-/>
+        <AuthModal 
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+            onSuccess={() => {
+                console.log('Login realizado com sucesso!');
+            }}
+        />
         
       </main>
     </div>

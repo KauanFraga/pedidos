@@ -1,9 +1,7 @@
-
 import { SavedQuote, QuoteItem, HistoryStatus } from '../types';
 
 const HISTORY_KEY = 'orcafacil_historico';
-// Increased limit to support higher volume usage (approx 1 month of data at 30 quotes/day)
-const HISTORY_LIMIT = 1000; 
+const HISTORY_LIMIT = 1000;
 
 export const getHistory = (): SavedQuote[] => {
   try {
@@ -15,14 +13,20 @@ export const getHistory = (): SavedQuote[] => {
   }
 };
 
+// ✅ ATUALIZADO - Aceita status como parâmetro
 export const saveQuoteToHistory = (
   customerName: string,
   items: QuoteItem[],
-  originalInputText: string
+  originalInputText: string,
+  status: HistoryStatus = 'PENDENTE' // ⬅️ Parâmetro opcional com default
 ): SavedQuote => {
   const currentHistory = getHistory();
   
-  const totalValue = items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
+  const totalValue = items.reduce((acc, item) => {
+    const price = item.unitPrice || item.catalogItem?.price || 0;
+    const quantity = item.quantity || 0;
+    return acc + (quantity * price);
+  }, 0);
 
   const newQuote: SavedQuote = {
     id: crypto.randomUUID(),
@@ -32,16 +36,14 @@ export const saveQuoteToHistory = (
     items: items,
     totalValue: totalValue,
     originalInputText: originalInputText,
-    status: 'PENDENTE' // Default status
+    status: status // ⬅️ USA O STATUS PASSADO
   };
 
-  // Add to top, slice to limit to prevent LocalStorage overflow
   const updatedHistory = [newQuote, ...currentHistory].slice(0, HISTORY_LIMIT);
   
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory));
   } catch (e) {
-    // If storage is full, remove oldest items and try again
     console.warn("LocalStorage quota exceeded. Trimming history.");
     const trimmedHistory = updatedHistory.slice(0, updatedHistory.length - 100);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmedHistory));
@@ -69,9 +71,12 @@ export const updateSavedQuote = (id: string, updates: Partial<SavedQuote>) => {
     const existingQuote = currentHistory[index];
     let totalValue = existingQuote.totalValue;
 
-    // If items are being updated, recalculate total value
     if (updates.items) {
-      totalValue = updates.items.reduce((acc, item) => acc + (item.quantity * (item.catalogItem?.price || 0)), 0);
+      totalValue = updates.items.reduce((acc, item) => {
+        const price = item.unitPrice || item.catalogItem?.price || 0;
+        const quantity = item.quantity || 0;
+        return acc + (quantity * price);
+      }, 0);
     }
 
     currentHistory[index] = {

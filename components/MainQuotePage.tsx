@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CatalogItem, QuoteItem } from '../types';
 import { RealtimeOrderInput } from './RealtimeOrderInput';
 import { ExportModal } from './ExportModal';
+import { ImageOCRUploader } from './ImageOCRUploader';
 import { loadCatalog } from '../services/catalogService';
 import { formatCurrency } from '../utils/parser';
 import { Sparkles, FileText, Clock } from 'lucide-react';
@@ -12,6 +13,7 @@ export const MainQuotePage: React.FC = () => {
   const [customerName, setCustomerName] = useState('');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [inputText, setInputText] = useState('');
 
   // Carrega catálogo ao montar
   useEffect(() => {
@@ -56,6 +58,12 @@ export const MainQuotePage: React.FC = () => {
     }
 
     setIsExportModalOpen(true);
+  };
+
+  // ============ NOVA FUNÇÃO: Recebe texto do OCR ============
+  const handleTextFromOCR = (text: string) => {
+    setInputText(text);
+    alert('✅ Texto extraído da imagem!\n\nRevise e clique em "Gerar Orçamento" para processar.');
   };
 
   if (isLoading) {
@@ -146,6 +154,45 @@ export const MainQuotePage: React.FC = () => {
             <p className="text-xs text-slate-500 mt-1">
               Cálculo em tempo real
             </p>
+          </div>
+        </div>
+
+        {/* Input Area with OCR Button */}
+        <div className="bg-white rounded-xl shadow-sm border-2 border-slate-200 p-6 mb-8">
+          <h2 className="text-lg font-bold text-slate-800 mb-4">Adicionar Itens ao Pedido</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Campo de texto */}
+            <div className="md:col-span-2">
+              <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                Cole ou digite a lista de materiais:
+              </label>
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                placeholder="Ex:&#10;100 CABO FLEXIVEL 2.5MM AZ&#10;10 TOMADA 20A ARIA&#10;5 DISJUNTOR 50A"
+                className="w-full h-48 p-4 border-2 border-slate-200 rounded-lg resize-none focus:ring-2 focus:ring-yellow-400 outline-none font-mono text-sm"
+              />
+            </div>
+
+            {/* Botão OCR */}
+            <div className="flex flex-col justify-between">
+              <div>
+                <label className="text-sm font-semibold text-slate-700 mb-2 block">
+                  Ou use uma imagem:
+                </label>
+                <ImageOCRUploader onTextExtracted={handleTextFromOCR} />
+              </div>
+              
+              <div className="mt-4 bg-purple-50 border-2 border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-800 font-medium">
+                  📷 Tire foto ou faça upload da lista de pedido do cliente!
+                </p>
+                <p className="text-xs text-purple-600 mt-1">
+                  O sistema vai extrair automaticamente descrição e quantidade.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -1,28 +1,34 @@
 {
-  "name": "kf-elétrica-v2",
+  "name": "kf-eletrica-v2",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "firebase deploy --only hosting"
   },
   "dependencies": {
-    "@google/genai": "^1.30.0",
-    "firebase": "^11.2.0",
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "firebase": "^11.10.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
     "lucide-react": "^0.554.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "recharts": "^3.4.1"
+    "recharts": "^3.4.1",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.18",
-    "typescript": "~5.8.2",
+    "typescript": "^5.8.2",
     "vite": "^6.2.0"
   }
 }

@@ -467,7 +467,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [useManualSearch, setUseManualSearch] = useState(true);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [customInput, setCustomInput] = useState<{[key: string]: string}>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -542,6 +542,7 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     setProcessedItems([]);
     onItemsChange([]);
     setUseManualSearch(true);
+    setCustomInput({});
   };
 
   // Copia para Excel
@@ -557,29 +558,68 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
     });
   };
 
-  // Edita item manualmente
-  const handleChangeItem = (itemId: string, newCatalogItem: CatalogItem) => {
-    const updated = processedItems.map(item => 
-      item.id === itemId ? { ...item, catalogItem: newCatalogItem, isLearned: false } : item
+  // ============ NOVA FUNÇÃO: Busca produtos por texto digitado ============
+  const getFilteredCatalog = (term: string) => {
+    if (!term || term.length < 2) return [];
+    const lower = term.toLowerCase();
+    return catalog
+      .filter(item => item.description.toLowerCase().includes(lower))
+      .slice(0, 10); // Limita a 10 sugestões
+  };
+
+  // ============ NOVA FUNÇÃO: Seleciona produto (do dropdown OU digitado) ============
+  const handleSelectProduct = (itemId: string, productText: string) => {
+    // Primeiro tenta encontrar no catálogo
+    const exactMatch = catalog.find(c => 
+      c.description.toLowerCase() === productText.toLowerCase()
     );
-    setProcessedItems(updated);
-    onItemsChange(updated);
+
+    if (exactMatch) {
+      // Se encontrou exato no catálogo, usa ele
+      const updated = processedItems.map(item => 
+        item.id === itemId ? { ...item, catalogItem: exactMatch, isLearned: false } : item
+      );
+      setProcessedItems(updated);
+      onItemsChange(updated);
+    } else {
+      // Se não encontrou, faz busca inteligente
+      const smartMatch = findSmartMatch(productText, catalog);
+      
+      if (smartMatch) {
+        const updated = processedItems.map(item => 
+          item.id === itemId ? { ...item, catalogItem: smartMatch, isLearned: false } : item
+        );
+        setProcessedItems(updated);
+        onItemsChange(updated);
+      } else {
+        // Produto não encontrado - cria um "fantasma" com preço 0
+        const customProduct: CatalogItem = {
+          id: `custom-${Date.now()}`,
+          description: productText,
+          price: 0
+        };
+        
+        const updated = processedItems.map(item => 
+          item.id === itemId ? { ...item, catalogItem: customProduct, isLearned: false } : item
+        );
+        setProcessedItems(updated);
+        onItemsChange(updated);
+        
+        alert(`⚠️ Produto "${productText}" não encontrado no catálogo.\nFoi adicionado com preço R$ 0,00.\n\nEdite o preço manualmente se necessário.`);
+      }
+    }
+    
     setEditingItemId(null);
-    setSearchTerm('');
+    setCustomInput(prev => {
+      const newState = { ...prev };
+      delete newState[itemId];
+      return newState;
+    });
   };
 
   const lineCount = inputText.split('\n').filter(line => line.trim()).length;
   const foundCount = processedItems.filter(item => item.catalogItem !== null).length;
   const notFoundCount = processedItems.filter(item => item.catalogItem === null).length;
-
-  // Filtra produtos para dropdown
-  const getFilteredCatalog = (term: string) => {
-    if (!term) return catalog.slice(0, 20);
-    const lower = term.toLowerCase();
-    return catalog.filter(item => 
-      item.description.toLowerCase().includes(lower)
-    ).slice(0, 20);
-  };
 
   return (
     <div className="space-y-4">
@@ -747,7 +787,10 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
                             </div>
                           </div>
                           <button
-                            onClick={() => setEditingItemId(item.id)}
+                            onClick={() => {
+                              setEditingItemId(item.id);
+                              setCustomInput(prev => ({ ...prev, [item.id]: '' }));
+                            }}
                             className="text-blue-600 hover:text-blue-800 p-1"
                             title="Editar item"
                           >
@@ -755,38 +798,83 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
                           </button>
                         </div>
 
-                        {/* Dropdown de edição */}
+                        {/* ============ CAMPO EDITÁVEL COM AUTOCOMPLETE ============ */}
                         {editingItemId === item.id && (
-                          <div className="mt-2 pt-2 border-t border-green-200">
-                            <input
-                              type="text"
-                              value={searchTerm}
-                              onChange={(e) => setSearchTerm(e.target.value)}
-                              placeholder="Buscar produto para substituir..."
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-sm mb-2"
-                              autoFocus
-                            />
-                            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded bg-white">
-                              {getFilteredCatalog(searchTerm).map(catalogItem => (
-                                <button
-                                  key={catalogItem.id}
-                                  onClick={() => handleChangeItem(item.id, catalogItem)}
-                                  className="w-full text-left px-2 py-2 hover:bg-blue-50 text-xs border-b border-slate-100 last:border-0"
-                                >
-                                  <div className="font-medium text-slate-800">{catalogItem.description}</div>
-                                  <div className="text-green-600 font-semibold">R$ {catalogItem.price.toFixed(2)}</div>
-                                </button>
-                              ))}
+                          <div className="mt-3 pt-3 border-t border-green-200">
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              ✏️ Digite ou selecione o produto:
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={customInput[item.id] || ''}
+                                onChange={(e) => setCustomInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && customInput[item.id]?.trim()) {
+                                    handleSelectProduct(item.id, customInput[item.id].trim());
+                                  }
+                                }}
+                                placeholder="Digite o nome do produto..."
+                                className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                autoFocus
+                              />
+                              
+                              {/* Sugestões de autocomplete */}
+                              {customInput[item.id] && customInput[item.id].length >= 2 && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border-2 border-blue-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                  {getFilteredCatalog(customInput[item.id]).map(catalogItem => (
+                                    <button
+                                      key={catalogItem.id}
+                                      onClick={() => {
+                                        setCustomInput(prev => ({ ...prev, [item.id]: catalogItem.description }));
+                                        handleSelectProduct(item.id, catalogItem.description);
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors"
+                                    >
+                                      <div className="text-sm font-medium text-slate-800">{catalogItem.description}</div>
+                                      <div className="text-xs text-green-600 font-semibold">R$ {catalogItem.price.toFixed(2)}</div>
+                                    </button>
+                                  ))}
+                                  
+                                  {getFilteredCatalog(customInput[item.id]).length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-slate-500 text-center">
+                                      Nenhum produto encontrado. Pressione Enter para adicionar como customizado.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <button
-                              onClick={() => {
-                                setEditingItemId(null);
-                                setSearchTerm('');
-                              }}
-                              className="mt-2 text-xs text-slate-600 hover:text-slate-800"
-                            >
-                              Cancelar
-                            </button>
+                            
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => {
+                                  if (customInput[item.id]?.trim()) {
+                                    handleSelectProduct(item.id, customInput[item.id].trim());
+                                  }
+                                }}
+                                disabled={!customInput[item.id]?.trim()}
+                                className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-semibold rounded-lg transition-colors"
+                              >
+                                ✓ Confirmar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingItemId(null);
+                                  setCustomInput(prev => {
+                                    const newState = { ...prev };
+                                    delete newState[item.id];
+                                    return newState;
+                                  });
+                                }}
+                                className="px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-lg hover:bg-slate-50 transition-colors"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            
+                            <p className="text-xs text-slate-500 mt-2">
+                              💡 Digite livremente ou selecione da lista. Pressione Enter para confirmar.
+                            </p>
                           </div>
                         )}
                       </div>
@@ -796,48 +884,96 @@ export const RealtimeOrderInput: React.FC<RealtimeOrderInputProps> = ({
                           ❌ Item não encontrado no catálogo
                         </p>
                         <p className="text-xs text-red-600 mt-1">
-                          Clique no botão de editar para escolher manualmente
+                          Clique no botão abaixo para escolher ou digitar manualmente
                         </p>
                         <button
-                          onClick={() => setEditingItemId(item.id)}
-                          className="mt-2 text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 flex items-center gap-1"
+                          onClick={() => {
+                            setEditingItemId(item.id);
+                            setCustomInput(prev => ({ ...prev, [item.id]: '' }));
+                          }}
+                          className="mt-2 text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 flex items-center gap-1 transition-colors"
                         >
                           <Edit2 className="w-3 h-3" />
-                          Escolher produto
+                          Escolher/Digitar produto
                         </button>
 
-                        {/* Dropdown de edição para item não encontrado */}
+                        {/* ============ CAMPO EDITÁVEL PARA ITEM NÃO ENCONTRADO ============ */}
                         {editingItemId === item.id && (
-                          <div className="mt-2 pt-2 border-t border-red-200">
-                            <input
-                              type="text"
-                              value={searchTerm}
-                              onChange={(e) => setSearchTerm(e.target.value)}
-                              placeholder="Buscar produto..."
-                              className="w-full px-2 py-1 border border-slate-300 rounded text-sm mb-2"
-                              autoFocus
-                            />
-                            <div className="max-h-40 overflow-y-auto border border-slate-200 rounded bg-white">
-                              {getFilteredCatalog(searchTerm).map(catalogItem => (
-                                <button
-                                  key={catalogItem.id}
-                                  onClick={() => handleChangeItem(item.id, catalogItem)}
-                                  className="w-full text-left px-2 py-2 hover:bg-blue-50 text-xs border-b border-slate-100 last:border-0"
-                                >
-                                  <div className="font-medium text-slate-800">{catalogItem.description}</div>
-                                  <div className="text-green-600 font-semibold">R$ {catalogItem.price.toFixed(2)}</div>
-                                </button>
-                              ))}
+                          <div className="mt-3 pt-3 border-t border-red-200">
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              ✏️ Digite ou selecione o produto:
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={customInput[item.id] || ''}
+                                onChange={(e) => setCustomInput(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && customInput[item.id]?.trim()) {
+                                    handleSelectProduct(item.id, customInput[item.id].trim());
+                                  }
+                                }}
+                                placeholder="Digite o nome do produto..."
+                                className="w-full px-3 py-2 border-2 border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                autoFocus
+                              />
+                              
+                              {/* Sugestões de autocomplete */}
+                              {customInput[item.id] && customInput[item.id].length >= 2 && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border-2 border-blue-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                  {getFilteredCatalog(customInput[item.id]).map(catalogItem => (
+                                    <button
+                                      key={catalogItem.id}
+                                      onClick={() => {
+                                        setCustomInput(prev => ({ ...prev, [item.id]: catalogItem.description }));
+                                        handleSelectProduct(item.id, catalogItem.description);
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-100 last:border-0 transition-colors"
+                                    >
+                                      <div className="text-sm font-medium text-slate-800">{catalogItem.description}</div>
+                                      <div className="text-xs text-green-600 font-semibold">R$ {catalogItem.price.toFixed(2)}</div>
+                                    </button>
+                                  ))}
+                                  
+                                  {getFilteredCatalog(customInput[item.id]).length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-slate-500 text-center">
+                                      Nenhum produto encontrado. Pressione Enter para adicionar como customizado.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <button
-                              onClick={() => {
-                                setEditingItemId(null);
-                                setSearchTerm('');
-                              }}
-                              className="mt-2 text-xs text-slate-600 hover:text-slate-800"
-                            >
-                              Cancelar
-                            </button>
+                            
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={() => {
+                                  if (customInput[item.id]?.trim()) {
+                                    handleSelectProduct(item.id, customInput[item.id].trim());
+                                  }
+                                }}
+                                disabled={!customInput[item.id]?.trim()}
+                                className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-sm font-semibold rounded-lg transition-colors"
+                              >
+                                ✓ Confirmar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingItemId(null);
+                                  setCustomInput(prev => {
+                                    const newState = { ...prev };
+                                    delete newState[item.id];
+                                    return newState;
+                                  });
+                                }}
+                                className="px-3 py-2 border border-slate-300 text-slate-700 text-sm rounded-lg hover:bg-slate-50 transition-colors"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            
+                            <p className="text-xs text-slate-500 mt-2">
+                              💡 Digite livremente ou selecione da lista. Pressione Enter para confirmar.
+                            </p>
                           </div>
                         )}
                       </div>
